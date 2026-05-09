@@ -177,11 +177,8 @@ public class Server {
                 case "handleOrbitSnapshotForLocation":
                     clients.get(json.getString("to")).sendMessage(json.toString());
                     break;
-                case "serverTimeRequest":
-                    authority.sendMessage(json.toString());
-                    break;
                 case "handleServerTime":
-                    clients.get(json.getString("to")).sendMessage(json.toString());
+                    broadcastExcept(clientId,message);
                     break;
                 default:
                     MultiplayerLog.log().warn("Unknown command: " + commandId);

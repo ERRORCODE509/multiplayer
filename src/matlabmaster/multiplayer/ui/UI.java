@@ -5,6 +5,7 @@ import javax.swing.border.EmptyBorder;
 import java.awt.*;
 
 import com.fs.starfarer.api.Global;
+import com.fs.starfarer.api.campaign.CampaignClockAPI;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.UserError;
 import matlabmaster.multiplayer.server.Server;
@@ -35,10 +36,12 @@ public class UI extends JFrame {
             @Override
             public void onDisconnected() {
                 MultiplayerLog.log().debug("UI onDisconnected() callback triggered!");
+                serverTimeLabel.setText("Disconnected");
                 try {
                     isRunning = false;
                     updateButtonStyle();
                     MultiplayerLog.log().debug("updateButtonStyle() completed");
+
                 } catch (Exception e) {
                     MultiplayerLog.log().error("Exception in onDisconnected: " + e.getMessage(), e);
                 }
@@ -79,7 +82,7 @@ public class UI extends JFrame {
         configPanel.add(new JLabel(" Port: ")); configPanel.add(portField);
         
         // --- SERVER TIME CLOCK ---
-        serverTimeLabel = new JLabel("Server Time: c--- -- --");
+        serverTimeLabel = new JLabel("Disconnected");
         serverTimeLabel.setForeground(Color.BLACK);
         serverTimeLabel.setFont(new Font(serverTimeLabel.getFont().getName(), Font.BOLD, 12));
         configPanel.add(new JLabel(" | "));
@@ -254,13 +257,19 @@ public class UI extends JFrame {
     /**
      * Sets the server time clock display.
      * Format: cYYY MM DD (e.g., c207 12 18)
-     * @param year The year (e.g., 207 for cycle 207)
-     * @param month The month (1-12)
-     * @param day The day (1-31)
+     * @param timestamp long
      */
-    public void setServerTime(int year, int month, int day) {
+    public void setServerTime(long timestamp) {
+        CampaignClockAPI clock = Global.getSector().getClock().createClock(timestamp);
+
+        int year  = clock.getCycle();
+        int month = clock.getMonth();
+        int day   = clock.getDay();
+        String shortMonth = clock.getShortMonthString();
+        int hour = clock.getHour();
+
         SwingUtilities.invokeLater(() -> {
-            String formattedTime = String.format("c%03d %02d %02d", year, month, day);
+            String formattedTime = String.format("%02d %02d %s %03d : %02d:00", day, month, shortMonth, year, hour);
             serverTimeLabel.setText("Server Time: " + formattedTime);
         });
     }

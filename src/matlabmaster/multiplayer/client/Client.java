@@ -1,9 +1,9 @@
 package matlabmaster.multiplayer.client;
 
 import com.fs.starfarer.api.Global;
-import com.fs.starfarer.api.campaign.CampaignClockAPI;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.UserError;
+import matlabmaster.multiplayer.ui.UI;
 import matlabmaster.multiplayer.updates.WorldSync;
 import matlabmaster.multiplayer.utils.FleetHelper;
 import matlabmaster.multiplayer.utils.FleetSerializer;
@@ -27,9 +27,8 @@ public class Client {
     public boolean isSelfHosted = false;
     public boolean isAuthority = false;
     public boolean wasPaused = false;
+    public UI ui;
     public String clientId;
-    public Long multiplayerTimestamp;
-    public CampaignClockAPI multiplayerClock;
 
     public interface ClientListener {
         void onDisconnected();
@@ -84,15 +83,11 @@ public class Client {
                 //ask for current location orbits
                 //todo update for all locations maybe if rly useful?
                 WorldSync.requestOrbitSnapshotForLocation(Global.getSector().getPlayerFleet().getContainingLocation(),this);
-                WorldSync.requestServerTime(this);
 
             }catch (Exception e){
                 MultiplayerLog.log().error("Handshake failed", e);
                 disconnect();
             }
-        }else{
-            //is self-hosted also since it's the first client it will be the authority
-            multiplayerTimestamp = Global.getSector().getClock().getTimestamp();
         }
         new Thread(() -> {
             try {
@@ -124,10 +119,12 @@ public class Client {
         if (isConnected) {
             isSelfHosted = false;
             isConnected = false;
-            multiplayerTimestamp = null;
-            multiplayerClock = null;
-            Global.getSettings().setBoolean("idleWhileWindowNotVisible", savedIdleWhileWindowNotVisible);
-            Global.getSettings().setFloat("campaignSpeedupMult", savedCampaignSpeedupMult);
+
+
+            Global.getSettings().setBoolean("idleWhileWindowNotVisible", savedIdleWhileWindowNotVisible);//disable pause while window is not focused
+            Global.getSettings().setFloat("campaignSpeedupMult", savedCampaignSpeedupMult);//disable speedup
+
+
             MultiplayerLog.log().info("DISCONNECTED FROM SERVER.");
             try { if (socket != null) socket.close(); } catch (IOException e) {MultiplayerLog.log().error("Unknown IO exception" + Arrays.toString(e.getStackTrace()));}
 
@@ -147,4 +144,5 @@ public class Client {
     }
 
     public boolean isConnected() { return isConnected; }
+
 }

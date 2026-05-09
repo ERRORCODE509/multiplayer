@@ -15,12 +15,6 @@ import java.util.List;
 import java.util.Objects;
 
 public class WorldSync {
-    public static void requestServerTime(Client client) throws JSONException {
-        JSONObject packet = new JSONObject();
-        packet.put("commandId","serverTimeRequest");
-        packet.put("from",client.clientId);
-        client.send(String.valueOf(packet));
-    }
 
     public void sendOrbitSnapshotForLocation(LocationAPI location, Client client, String from) throws JSONException {
         List<SectorEntityToken> allEntities = location.getAllEntities();

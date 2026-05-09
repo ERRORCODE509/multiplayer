@@ -36,6 +36,7 @@ public class MultiplayerModPlugin extends BaseModPlugin {
         if (uiInstance == null) {
             uiInstance = new UI(serverInstance, clientInstance);
             uiInstance.showUI();
+            clientInstance.ui = uiInstance;
             new MultiplayerWatchdog(clientInstance, serverInstance).start();}
 
         MultiplayerLog.log().info("Multiplayer mod UI initialized");

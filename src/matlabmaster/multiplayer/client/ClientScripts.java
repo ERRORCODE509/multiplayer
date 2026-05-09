@@ -2,17 +2,13 @@ package matlabmaster.multiplayer.client;
 
 import com.fs.starfarer.api.EveryFrameScript;
 import com.fs.starfarer.api.Global;
-import com.fs.starfarer.api.campaign.CampaignClockAPI;
 import com.fs.starfarer.api.campaign.CampaignFleetAPI;
 import com.fs.starfarer.api.campaign.LocationAPI;
 import com.fs.starfarer.campaign.Faction;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.updates.FleetSync;
 import matlabmaster.multiplayer.updates.WorldSync;
-import matlabmaster.multiplayer.utils.FleetHelper;
-import matlabmaster.multiplayer.utils.FleetSerializer;
-import matlabmaster.multiplayer.utils.PauseUtility;
-import matlabmaster.multiplayer.utils.WorldSerializer;
+import matlabmaster.multiplayer.utils.*;
 import org.json.JSONObject;
 
 import java.util.Arrays;
@@ -210,14 +206,8 @@ public class ClientScripts implements EveryFrameScript {
                         }
                     }
                     break;
-                case "serverTimeRequest":
-                    packet = new JSONObject();
-                    packet.put("commandId","handleServerTime");
-                    packet.put("to",message.getString("from"));
-                    packet.put("timestamp",client.multiplayerTimestamp);
-                    break;
                 case "handleServerTime":
-                    client.multiplayerTimestamp = message.getLong("timestamp");
+                    client.ui.setServerTime(message.getLong("timestamp"));
                     break;
                 default:
                     MultiplayerLog.log().warn("unknown command: " + commandId);
@@ -233,28 +223,11 @@ public class ClientScripts implements EveryFrameScript {
             fleetSync.sendOwnFleetUpdate(client);
             if(client.isAuthority){
                 fleetSync.sendGlobalFleetsUpdate(client);
+                ClockUtility.sendServerTime(client);
+                ClockUtility.setUiTime(client);
             }
-            // Update server time clock from game clock
-            //updateServerTimeFromGameClock();
         } catch (Exception e) {
             MultiplayerLog.log().error("Unable to send own fleet update: " + e.getMessage(), e);
         }
     }
-
-    //private void updateServerTimeFromGameClock() {
-    //    try {
-    //        if (Global.getSector() != null && Global.getSector().getClock() != null && client.multiplayerTimestamp != null) {
-    //            if(client.multiplayerClock == null){
-    //                client.multiplayerClock = Global.getSector().getClock().createClock(client.multiplayerTimestamp);
-    //            }
-    //            int cycle = client.multiplayerClock.getCycle();
-    //            int month = client.multiplayerClock.getMonth();
-    //            int day = client.multiplayerClock.getDay();
-    //
-    //            matlabmaster.multiplayer.MultiplayerModPlugin.getUI().setServerTime(cycle, month, day);
-    //        }
-    //    } catch (Exception e) {
-    //        // Silently fail if sector/clock not available yet
-    //    }
-    //}
 }
