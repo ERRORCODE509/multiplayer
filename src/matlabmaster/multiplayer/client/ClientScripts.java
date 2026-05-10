@@ -21,6 +21,7 @@ public class ClientScripts implements EveryFrameScript {
     private float timer = 0f;
     private final FleetSync fleetSync = new FleetSync();
     private final WorldSync worldSync = new WorldSync();
+    private final SectorScriptsUtility sectorScriptsUtility = new SectorScriptsUtility();
 
     // Message waitlist coming from client thread
     private static final ConcurrentLinkedQueue<JSONObject> messageQueue = new ConcurrentLinkedQueue<>();
@@ -225,6 +226,9 @@ public class ClientScripts implements EveryFrameScript {
                 fleetSync.sendGlobalFleetsUpdate(client);
                 ClockUtility.sendServerTime(client);
                 ClockUtility.setUiTime(client);
+                sectorScriptsUtility.restoreScripts();
+            }else{
+                sectorScriptsUtility.disableScripts();
             }
         } catch (Exception e) {
             MultiplayerLog.log().error("Unable to send own fleet update: " + e.getMessage(), e);
