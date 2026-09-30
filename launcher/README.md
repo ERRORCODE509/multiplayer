@@ -15,6 +15,13 @@ It's a small separate program, because it does things a mod isn't allowed to (st
    multiplayer window **JOIN** `127.0.0.1` on the same port. Friends join your IP on that port (forward it on
    your router for internet play).
 
+## AI fleets around every player
+Vanilla only creates most AI fleets (traders, patrols, base fleets, raiders) near "the player", which on a server
+is only the server's own fleet. **MultiplayerAgent.jar** (keep it next to the launcher) fixes that: the launcher
+starts the server instance, and your own game via START MY GAME, with it, and it makes vanilla's fleet managers
+measure to the **nearest connected player** instead. Nothing on disk is changed; it only applies to games started
+from here. Raiders still pick one spawn system at a time.
+
 ## Where things are
 - The world lives in **`saves-server`** next to your `saves` folder: a copy of the save you picked, so the
   server's autosaves never touch your own save. Later starts reuse it (the world keeps its progress); tick

@@ -21,6 +21,15 @@ import java.util.List;
  */
 public class ServerScripts implements EveryFrameScript {
     private static final float INTERVAL = 0.05f; //20 ticks per second, like the clients
+    /**
+     * Where the players are, for the multiplayer agent (-javaagent, added by the launcher): it makes vanilla's fleet
+     * managers spawn and keep AI fleets around the nearest of these instead of around this game's own player fleet
+     * only. A float[] {x0, y0, x1, y1, ...} of hyperspace positions in System.getProperties(), which the agent reads,
+     * so neither side links to the other. Without the agent it's simply unused.
+     */
+    public static final String PLAYER_POSITIONS_KEY = "multiplayer.nearestPlayer.positions";
+    private static final String AGENT_ACTIVE_KEY = "multiplayer.nearestPlayer.active";
+
     /** Hides a dedicated server's own player fleet from the NPC fleets of its world (nobody plays it). */
     private static final String HIDDEN_ID = "multiplayer_dedicated_server";
 
@@ -77,6 +86,12 @@ public class ServerScripts implements EveryFrameScript {
         if (timer < INTERVAL) return;
         timer = Math.min(timer - INTERVAL, INTERVAL); //never try to catch up on a backlog of ticks
         try {
+            publishPlayerPositions(); //for the multiplayer agent, 20 times a second
+        } catch (Exception e) {
+            //never let the agent's helper hold up the world updates
+            MultiplayerLog.log().warn("Couldn't publish the player positions for the agent: " + e.getMessage());
+        }
+        try {
             fleetSync.sendVisibleFleetsUpdates(serverInstance.worldClients()); //each client only what its fleet can see
             serverInstance.broadcastWorld(ClockUtility.serverTimePacket().toString());
             if (MultiplayerModPlugin.getUI() != null) {
@@ -97,6 +112,9 @@ public class ServerScripts implements EveryFrameScript {
 
     private void started() {
         wasRunning = true;
+        MultiplayerLog.log().info(Boolean.TRUE.equals(System.getProperties().get(AGENT_ACTIVE_KEY))
+                ? "Multiplayer agent active: AI fleets spawn around every player"
+                : "Multiplayer agent not active: vanilla only spawns most AI fleets near this game's own player fleet (start the server with the launcher to fix that)");
         fleetSync = new FleetSync(); //the new clients know nothing yet: start the diffs from scratch
         worldWasPaused = false;
         timer = 0f;
@@ -105,6 +123,7 @@ public class ServerScripts implements EveryFrameScript {
 
     private void stopped() {
         wasRunning = false;
+        System.getProperties().remove(PLAYER_POSITIONS_KEY); //back to vanilla spawning
         hideOwnFleet(false);
         //a dedicated server kept copies of the players' fleets: they don't belong in its game
         List<CampaignFleetAPI> copies = new ArrayList<>();
@@ -117,6 +136,25 @@ public class ServerScripts implements EveryFrameScript {
             fleet.getContainingLocation().removeEntity(fleet);
         }
         if (!copies.isEmpty()) MultiplayerLog.log().info("Removed " + copies.size() + " player fleet copies from the server's game");
+    }
+
+    /**
+     * The players: every connected player's fleet as it exists in this game (the copies, tagged playerFleet), plus
+     * this game's own player fleet when someone plays it ("host current game"; a dedicated server's is a dummy).
+     */
+    private void publishPlayerPositions() {
+        List<Float> xy = new ArrayList<>();
+        for (LocationAPI location : Global.getSector().getAllLocations()) {
+            for (CampaignFleetAPI fleet : location.getFleets()) {
+                boolean player = fleet.isPlayerFleet() ? !serverInstance.isDedicated() : fleet.hasTag("playerFleet");
+                if (!player || fleet.getLocationInHyperspace() == null) continue;
+                xy.add(fleet.getLocationInHyperspace().x);
+                xy.add(fleet.getLocationInHyperspace().y);
+            }
+        }
+        float[] positions = new float[xy.size()];
+        for (int i = 0; i < positions.length; i++) positions[i] = xy.get(i);
+        System.getProperties().put(PLAYER_POSITIONS_KEY, positions);
     }
 
     private void hideOwnFleet(boolean hide) {

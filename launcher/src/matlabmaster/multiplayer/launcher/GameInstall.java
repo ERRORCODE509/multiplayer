@@ -98,9 +98,10 @@ public class GameInstall {
      * size, started straight into the game (no launcher window: -DlaunchDirect, read by StarfarerLauncher) in a
      * small window without sound, and told to host (-Dmultiplayer.serverMode, read by the mod).
      */
-    public List<String> serverCommand(Path serverSaves, Path serverLogs, int memoryMb, int port, String resolution) {
+    public List<String> serverCommand(Path serverSaves, Path serverLogs, int memoryMb, int port, String resolution, Path agentJar) {
         List<String> cmd = new ArrayList<>();
         cmd.add(java.toString());
+        if (agentJar != null) cmd.add("-javaagent:" + agentJar.toAbsolutePath());
         for (String a : jvmArgs) {
             if (a.startsWith("-Xmx")) a = "-Xmx" + memoryMb + "m";
             else if (a.startsWith("-Xms")) a = "-Xms" + memoryMb + "m";
@@ -114,6 +115,19 @@ public class GameInstall {
         cmd.add("-DstartSound=false");
         cmd.add("-Dmultiplayer.serverMode=true");
         cmd.add("-Dmultiplayer.port=" + port);
+        cmd.add(mainClass);
+        return cmd;
+    }
+
+    /**
+     * The player's own game, started exactly as the game starts itself (its launcher window included), plus the
+     * multiplayer agent, so that hosting from it ("host current game") also spawns AI fleets around every player.
+     */
+    public List<String> playerCommand(Path agentJar) {
+        List<String> cmd = new ArrayList<>();
+        cmd.add(java.toString());
+        if (agentJar != null) cmd.add("-javaagent:" + agentJar.toAbsolutePath());
+        cmd.addAll(jvmArgs);
         cmd.add(mainClass);
         return cmd;
     }

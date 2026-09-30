@@ -68,6 +68,9 @@ public class LauncherWindow extends JFrame {
             say("(Load Game); it starts hosting by itself. Then play in your own game and join 127.0.0.1 on the port.");
             say("Friends join your IP on the same port (forward it on your router for internet play).");
             if (saves.getItemCount() == 0) say("No saves found in " + world.playerSaves + ": start a campaign first.");
+            say(MultiplayerLauncher.agentJar() != null
+                    ? "Multiplayer agent found: AI fleets will spawn around every player, not only near the server."
+                    : "MultiplayerAgent.jar is missing from this folder: AI fleets will only spawn near the server's own fleet.");
         } catch (Exception ex) {
             say("ERROR: " + ex.getMessage());
             start.setEnabled(false);
@@ -98,7 +101,7 @@ public class LauncherWindow extends JFrame {
         new Thread(() -> {
             try {
                 say(world.prepare(save, replace.isSelected()));
-                List<String> cmd = install.serverCommand(world.serverSaves, world.serverLogs, mem, p, MultiplayerLauncher.DEFAULT_RESOLUTION);
+                List<String> cmd = install.serverCommand(world.serverSaves, world.serverLogs, mem, p, MultiplayerLauncher.DEFAULT_RESOLUTION, MultiplayerLauncher.agentJar());
                 ProcessBuilder pb = new ProcessBuilder(cmd).directory(install.workDir.toFile()).redirectErrorStream(true);
                 server = pb.start();
                 SwingUtilities.invokeLater(() -> stop.setEnabled(true));
@@ -134,10 +137,8 @@ public class LauncherWindow extends JFrame {
 
     private void startPlayerGame() {
         try {
-            ProcessBuilder pb = install.os == GameInstall.Os.WINDOWS
-                    ? new ProcessBuilder(install.root.resolve("starsector.exe").toString()).directory(install.root.toFile())
-                    : new ProcessBuilder("sh", install.root.resolve("starsector.sh").toString()).directory(install.root.toFile());
-            pb.start();
+            //the game's own command (as starsector.exe / .sh would run it) plus the agent, from the game's folder
+            new ProcessBuilder(install.playerCommand(MultiplayerLauncher.agentJar())).directory(install.workDir.toFile()).start();
             say("Started your own game. Once in the campaign, JOIN 127.0.0.1 on port " + port.getText().trim() + " in the multiplayer window.");
         } catch (Exception ex) {
             say("ERROR starting your game: " + ex.getMessage());

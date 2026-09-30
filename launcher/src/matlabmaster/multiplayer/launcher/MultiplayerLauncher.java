@@ -19,6 +19,17 @@ public class MultiplayerLauncher {
     public static final int DEFAULT_PORT = 20603;
     public static final String DEFAULT_RESOLUTION = "1024x576";
 
+    /** MultiplayerAgent.jar next to the launcher's own jar, or null if it isn't there (then fleets spawn as in vanilla). */
+    public static Path agentJar() {
+        try {
+            Path self = Paths.get(MultiplayerLauncher.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+            Path agent = (java.nio.file.Files.isDirectory(self) ? self : self.getParent()).resolve("MultiplayerAgent.jar");
+            return java.nio.file.Files.isRegularFile(agent) ? agent : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         Path game = Paths.get(System.getProperty("user.dir"));
         String save = null;
@@ -50,7 +61,8 @@ public class MultiplayerLauncher {
         if (save != null) {
             System.out.println(world.serverHas(save) ? "Would use the server's existing copy of " + save : "Would copy " + save + " into the server's saves");
         }
-        List<String> cmd = install.serverCommand(world.serverSaves, world.serverLogs, memory > 0 ? memory : install.memoryMb(), port, DEFAULT_RESOLUTION);
+        System.out.println("Agent: " + (agentJar() == null ? "not found (AI fleets will only spawn near the server's own fleet)" : agentJar()));
+        List<String> cmd = install.serverCommand(world.serverSaves, world.serverLogs, memory > 0 ? memory : install.memoryMb(), port, DEFAULT_RESOLUTION, agentJar());
         System.out.println("Command (" + cmd.size() + " parts):");
         for (String c : cmd) System.out.println("  " + c);
     }
