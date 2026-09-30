@@ -24,6 +24,9 @@ public class Client {
     private final CopyOnWriteArrayList<ClientListener> listeners = new CopyOnWriteArrayList<>();
     private boolean savedIdleWhileWindowNotVisible = true;
     private float savedCampaignSpeedupMult = 2f;
+    private volatile boolean settingsApplied = false;
+    /** Set by connect(); the rest of joining touches the game, so ClientScripts finishes it on the game thread. */
+    private volatile boolean joinPending = false;
     public boolean isSelfHosted = false;
     public boolean isAuthority = false;
     public boolean wasPaused = false;
@@ -49,18 +52,35 @@ public class Client {
         out = new PrintWriter(socket.getOutputStream(), true);
         in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
 
-        Global.getSector().getPlayerFleet().setId("User-" + socket.getLocalPort());
-        isConnected = true;
         clientId = "User-" + socket.getLocalPort();
+        isConnected = true;
+        //connect() runs on a UI thread, and the game isn't thread safe: everything that touches the game
+        //(our fleet's id, settings, the fleets snapshot) is done by completeJoin() on the game thread
+        joinPending = true;
+
+        // SUCCESS MESSAGE
+        MultiplayerLog.log().info("CONNECTED SUCCESSFULLY TO SERVER " + ip + ":" + port);
+        startReadThread();
+    }
+
+    public boolean isJoinPending() { return joinPending; }
+
+    /**
+     * The part of joining that touches the game. Called by ClientScripts on the game thread, on the first
+     * frame after connect(), before any received message is processed.
+     */
+    public void completeJoin() {
+        if (!joinPending) return;
+        joinPending = false;
+        Global.getSector().getPlayerFleet().setId(clientId);
 
         // Apply multiplayer-only settings (reverted on disconnect)
         savedIdleWhileWindowNotVisible = Global.getSettings().getBoolean("idleWhileWindowNotVisible");
         savedCampaignSpeedupMult = Global.getSettings().getFloat("campaignSpeedupMult");
         Global.getSettings().setBoolean("idleWhileWindowNotVisible", false);
         Global.getSettings().setFloat("campaignSpeedupMult", 1f);
+        settingsApplied = true;
 
-        // SUCCESS MESSAGE
-        MultiplayerLog.log().info("CONNECTED SUCCESSFULLY TO SERVER " + ip + ":" + port);
         if(!isSelfHosted){
             try {
                 //send our fleet to the server so that it knows about it
@@ -89,6 +109,9 @@ public class Client {
                 disconnect();
             }
         }
+    }
+
+    private void startReadThread() {
         new Thread(() -> {
             try {
                 String line;
@@ -121,8 +144,12 @@ public class Client {
             isConnected = false;
 
 
-            Global.getSettings().setBoolean("idleWhileWindowNotVisible", savedIdleWhileWindowNotVisible);//disable pause while window is not focused
-            Global.getSettings().setFloat("campaignSpeedupMult", savedCampaignSpeedupMult);//disable speedup
+            joinPending = false;
+            if (settingsApplied) { //never overwrite the player's settings with defaults if joining never finished
+                settingsApplied = false;
+                Global.getSettings().setBoolean("idleWhileWindowNotVisible", savedIdleWhileWindowNotVisible);//disable pause while window is not focused
+                Global.getSettings().setFloat("campaignSpeedupMult", savedCampaignSpeedupMult);//disable speedup
+            }
 
 
             MultiplayerLog.log().info("DISCONNECTED FROM SERVER.");

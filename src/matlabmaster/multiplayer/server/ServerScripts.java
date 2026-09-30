@@ -23,6 +23,11 @@ public class ServerScripts implements EveryFrameScript {
 
     @Override
     public void advance(float amount) {
+        //work the network threads handed over because it touches the game
+        Runnable task;
+        while ((task = serverInstance.gameThreadTasks.poll()) != null) {
+            if (serverInstance.isRunning) task.run();
+        }
         if(serverInstance.isRunning){
             // Check if authority is null or points to a disconnected client
             if(serverInstance.authority == null || !serverInstance.clients.containsValue(serverInstance.authority)){

@@ -64,6 +64,11 @@ public class ClientScripts implements EveryFrameScript {
         if (client == null || !client.isConnected()) {
             return;
         }
+        //finish joining here, on the game thread, before any received message is processed
+        if (client.isJoinPending()) {
+            client.completeJoin();
+            if (!client.isConnected()) return;
+        }
 
         //handle the game pausing , disable classic in game pause
         //if the game is in a dialog inform the server
