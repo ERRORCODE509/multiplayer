@@ -197,8 +197,9 @@ public class Server {
                         try {
                             JSONObject reply = new JSONObject();
                             reply.put("commandId", "handleAllFleetsSnapshot");
-                            //a dedicated server's own player fleet isn't a player: leave it out
-                            reply.put("fleets", FleetHelper.getFleetsSnapshot(!dedicated));
+                            //only the players' fleets: NPC fleets come with the next world update, only those this
+                            //client can see. A dedicated server's own player fleet isn't a player: left out
+                            reply.put("fleets", FleetHelper.getPlayerFleetsSnapshot(!dedicated));
                             sendTo(clientId, String.valueOf(reply));
                         } catch (Exception e) {
                             MultiplayerLog.log().error("Failed to build the fleets snapshot for " + clientId, e);
@@ -275,6 +276,15 @@ public class Server {
             id = "User-" + UUID.randomUUID().toString().substring(0, 8);
         } while (clients.containsKey(id));
         return id;
+    }
+
+    /** Every client except the host's own one, by id: who gets the world's updates, each only what it can see. */
+    public Map<String, java.util.function.Consumer<String>> worldClients() {
+        Map<String, java.util.function.Consumer<String>> world = new LinkedHashMap<>();
+        for (Map.Entry<String, ClientHandler> entry : clients.entrySet()) {
+            if (!entry.getKey().equals(localClientId)) world.put(entry.getKey(), entry.getValue()::sendMessage);
+        }
+        return world;
     }
 
     /** Every client except the host's own one (which shares this game): who gets the world's updates. */

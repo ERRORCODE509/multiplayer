@@ -40,6 +40,19 @@ public class FleetHelper {
         return fleets;
     }
 
+    /** Every player's fleet: this game's own (unless left out) and the copies of other players' fleets. */
+    public static JSONArray getPlayerFleetsSnapshot(boolean includeOwnPlayerFleet) throws JSONException {
+        JSONArray fleets = new JSONArray();
+        for(LocationAPI location : Global.getSector().getAllLocations()){
+            for (CampaignFleetAPI fleet : location.getFleets()){
+                if (fleet.isPlayerFleet() ? includeOwnPlayerFleet : fleet.hasTag("playerFleet")) {
+                    fleets.put(FleetSerializer.serializeFleet(fleet));
+                }
+            }
+        }
+        return fleets;
+    }
+
     /** Every NPC fleet in the sector: the same fleets getNPCFleetsSnapshot() serializes. */
     public static List<CampaignFleetAPI> getNPCFleets() {
         List<CampaignFleetAPI> npcFleets = new ArrayList<>();
