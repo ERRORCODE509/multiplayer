@@ -3,6 +3,7 @@ package matlabmaster.multiplayer.utils;
 import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.CampaignFleetAPI;
 import com.fs.starfarer.api.campaign.LocationAPI;
+import com.fs.starfarer.api.campaign.SectorEntityToken;
 import org.json.JSONArray;
 import org.json.JSONException;
 
@@ -47,7 +48,10 @@ public class FleetHelper {
 
 
     public static void removeFleetById(String id){
-        Global.getSector().getEntityById(id).getContainingLocation().removeEntity(Global.getSector().getEntityById(id));
+        SectorEntityToken entity = Global.getSector().getEntityById(id);
+        //unknown id (never received, or already gone): nothing to remove, and never our own fleet
+        if (entity == null || entity.getContainingLocation() == null || entity == Global.getSector().getPlayerFleet()) return;
+        entity.getContainingLocation().removeEntity(entity);
     }
 
 }
