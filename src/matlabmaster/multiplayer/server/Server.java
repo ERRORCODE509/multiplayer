@@ -15,6 +15,9 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 public class Server {
+    /** Bump whenever client and server messages change in a way an older version can't handle; checked on join. */
+    public static final int PROTOCOL_VERSION = 1;
+
     private int port;
     private ServerSocket serverSocket;
     public volatile boolean isRunning = false; // volatile to ensure visibility between threads
@@ -57,8 +60,21 @@ public class Server {
                         Socket socket = serverSocket.accept();
                         if (!isRunning) break; // safety if stop() is called on accept
 
-                        String clientId = "User-" + socket.getPort();
+                        //the server picks the id and sends it first ("welcome"): ids made from port numbers don't
+                        //match on both ends behind a router (NAT), and two machines can use the same local port
+                        String clientId = newClientId();
                         ClientHandler handler = new ClientHandler(socket, clientId, this);
+                        try {
+                            JSONObject welcome = new JSONObject();
+                            welcome.put("commandId","welcome");
+                            welcome.put("id",clientId);
+                            welcome.put("protocol",PROTOCOL_VERSION);
+                            handler.sendMessage(welcome.toString());
+                        } catch (JSONException e) {
+                            MultiplayerLog.log().error("failed to welcome " + clientId, e);
+                            handler.closeConnection();
+                            continue;
+                        }
                         clients.put(clientId, handler);
                         JSONObject packet;
 
@@ -190,6 +206,15 @@ public class Server {
         }
     }
 
+    /** A random id no connected client has. Random rather than counted, so it can't match a fleet id left in someone's save by an earlier session. */
+    private String newClientId() {
+        String id;
+        do {
+            id = "User-" + UUID.randomUUID().toString().substring(0, 8);
+        } while (clients.containsKey(id));
+        return id;
+    }
+
     private void authorityManager(Server server) throws JSONException {
         //if this method was called this means that the authority paused / left
         //to ensure smooth gameplay across clients a new authority must be set so that updates keep flowing
@@ -247,17 +272,19 @@ public class Server {
         private final Server server;
         public boolean isPaused;
 
-        public ClientHandler(Socket socket, String clientId, Server server) {
+        public ClientHandler(Socket socket, String clientId, Server server) throws IOException {
             this.socket = socket;
             this.clientId = clientId;
             this.server = server;
+            //created here rather than in run() so the welcome, and anything broadcast before run() starts, isn't lost.
+            //UTF-8 to match the reader on the other end (Java 17's default on Windows is not UTF-8)
+            this.out = new PrintWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8), true);
         }
 
         @Override
         public void run() {
             Thread.currentThread().setContextClassLoader(Server.class.getClassLoader());
             try (BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))) {
-                this.out = new PrintWriter(socket.getOutputStream(), true);
 
                 String input;
                 // La boucle s'arrête si le client coupe (input == null) OU si le serveur s'arrête
