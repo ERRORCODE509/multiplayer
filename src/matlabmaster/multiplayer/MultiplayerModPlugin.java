@@ -49,6 +49,7 @@ public class MultiplayerModPlugin extends BaseModPlugin {
         if (clientScriptsInstance == null) { //ensure only one client script exist at any time
             clientScriptsInstance = new ClientScripts(clientInstance);
         }
+        clientScriptsInstance.onGameLoad();
         Global.getSector().addTransientScript(clientScriptsInstance);
 
         if (serverScriptsInstance == null) {
@@ -56,6 +57,15 @@ public class MultiplayerModPlugin extends BaseModPlugin {
         }
         Global.getSector().addTransientScript(serverScriptsInstance);
         MultiplayerLog.log().info("registered scripts");
+    }
+
+    @Override
+    public void beforeGameSave() {
+        super.beforeGameSave();
+        //non authority clients have the sector scripts taken out, never let a save (autosaves included) lose them
+        if (clientScriptsInstance != null) {
+            clientScriptsInstance.restoreSectorScripts();
+        }
     }
 
     public static Server getServer() {
