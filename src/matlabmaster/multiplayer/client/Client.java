@@ -50,7 +50,7 @@ public class Client {
         socket = new Socket();
         socket.connect(new InetSocketAddress(ip, port), 5000);
 
-        out = new PrintWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8), true);
+        out = new PrintWriter(socket.getOutputStream(), true, StandardCharsets.UTF_8); //UTF-8 like the reader; no OutputStreamWriter (not allowed to mods)
         in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
 
         //the server picks our id and sends it first; an id made from our own port number doesn't match the
