@@ -277,8 +277,9 @@ public class Server {
             this.clientId = clientId;
             this.server = server;
             //created here rather than in run() so the welcome, and anything broadcast before run() starts, isn't lost.
-            //UTF-8 to match the reader on the other end (Java 17's default on Windows is not UTF-8)
-            this.out = new PrintWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8), true);
+            //UTF-8 to match the reader on the other end (Java 17's default on Windows is not UTF-8). Not through an
+            //OutputStreamWriter: the game refuses to load java.io classes outside a short allowed list for mods
+            this.out = new PrintWriter(socket.getOutputStream(), true, StandardCharsets.UTF_8);
         }
 
         @Override
