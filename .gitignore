@@ -192,3 +192,6 @@ nbdist/
 .idea/vcs.xml
 
 .idea/csv-editor.xml
+
+# multiplayer launcher build output
+launcher/build/
