@@ -80,6 +80,11 @@ public class JsonDiffUtility {
         }
     }
 
+    /** An "ADDED" / "REMOVED" / "UPDATE" instruction in the same format getDifferences() produces. */
+    public static JSONObject instruction(String action, Object newValue, Object oldValue) {
+        return createInstruction(action, newValue, oldValue);
+    }
+
     private static JSONObject createInstruction(String action, Object newValue, Object oldValue) {
         JSONObject instruction = new JSONObject();
         // Since we are creating a fresh object here, safePut ensures no crashes

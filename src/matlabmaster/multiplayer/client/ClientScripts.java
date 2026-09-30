@@ -4,6 +4,7 @@ import com.fs.starfarer.api.EveryFrameScript;
 import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.CampaignFleetAPI;
 import com.fs.starfarer.api.campaign.LocationAPI;
+import com.fs.starfarer.api.campaign.SectorEntityToken;
 import com.fs.starfarer.campaign.Faction;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.updates.FleetSync;
@@ -140,23 +141,11 @@ public class ClientScripts implements EveryFrameScript {
                     Iterator<?> keys = updates.keys();
                     while (keys.hasNext()){
                         String fleetId = (String) keys.next();
-                        JSONObject updateWrapper = new JSONObject();
-                        updateWrapper.put("fleetId", fleetId);
-                        updateWrapper.put("changes", updates.getJSONObject(fleetId));
-
-                        //same as PLayerFleetUpdate but with a list of fleets to update
-                        if (Global.getSector().getEntityById(fleetId) instanceof CampaignFleetAPI) {
-                            fleetSync.handleRemoteFleetUpdate(updateWrapper);
-                        } else {
-                            if(!Global.getSector().isPaused()){
-                                //only run if not paused because if the client is pause it will continuously ask for snapshots
-                                //and then try to spawn all of them when unpausing resulting in 1000 fleet spawning
-                                packet = new JSONObject();
-                                packet.put("commandId","requestFleetSnapshot");
-                                packet.put("fleetId",fleetId);
-                                MultiplayerLog.log().warn("globalFleetsUpdate : unknown fleet " + fleetId);
-                                client.send(packet.toString());
-                            }
+                        try {
+                            applyGlobalFleetChange(fleetId, updates.getJSONObject(fleetId));
+                        } catch (Exception e) {
+                            //one fleet that can't be applied (e.g. in a location this game doesn't have) must not drop the rest
+                            MultiplayerLog.log().error("globalFleetsUpdate : couldn't apply the change to " + fleetId + ": " + e.getMessage(), e);
                         }
                     }
                     break;
@@ -216,6 +205,44 @@ public class ClientScripts implements EveryFrameScript {
             }
         } catch (Exception e) {
             MultiplayerLog.log().error("Exception in processMessage: " + e.getMessage() + " " + Arrays.toString(e.getStackTrace()) + " " + message.toString(), e);
+        }
+    }
+
+    /** One fleet's entry from a "globalFleetsUpdate": a whole fleet ADDED or REMOVED, or a diff to apply. */
+    private void applyGlobalFleetChange(String fleetId, JSONObject change) throws Exception {
+        SectorEntityToken existing = Global.getSector().getEntityById(fleetId);
+        //a whole fleet appeared or disappeared on the authority's side (these used to fall
+        //through to applyFleetDiff, which ignores them: gone fleets lingered forever)
+        if (change.has("action")) {
+            String action = change.getString("action");
+            if ("REMOVED".equals(action)) {
+                if (existing instanceof CampaignFleetAPI && existing != Global.getSector().getPlayerFleet()
+                        && existing.getContainingLocation() != null) {
+                    existing.getContainingLocation().removeEntity(existing);
+                }
+            } else if ("ADDED".equals(action) && !(existing instanceof CampaignFleetAPI)) {
+                //the full fleet is in the message: no need to ask for a snapshot
+                FleetSerializer.unSerializeFleet(change.getJSONObject("value"), Global.getFactory().createEmptyFleet(Faction.NO_FACTION, true));
+            }
+            return;
+        }
+        JSONObject updateWrapper = new JSONObject();
+        updateWrapper.put("fleetId", fleetId);
+        updateWrapper.put("changes", change);
+
+        //same as PLayerFleetUpdate but with a list of fleets to update
+        if (existing instanceof CampaignFleetAPI) {
+            fleetSync.handleRemoteFleetUpdate(updateWrapper);
+        } else {
+            if(!Global.getSector().isPaused()){
+                //only run if not paused because if the client is pause it will continuously ask for snapshots
+                //and then try to spawn all of them when unpausing resulting in 1000 fleet spawning
+                JSONObject packet = new JSONObject();
+                packet.put("commandId","requestFleetSnapshot");
+                packet.put("fleetId",fleetId);
+                MultiplayerLog.log().warn("globalFleetsUpdate : unknown fleet " + fleetId);
+                client.send(packet.toString());
+            }
         }
     }
 
