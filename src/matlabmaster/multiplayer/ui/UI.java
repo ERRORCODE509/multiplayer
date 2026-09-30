@@ -202,6 +202,13 @@ public class UI extends JFrame {
         updateButtonStyle();
     }
 
+    /** The server was started without the buttons (a server instance hosts by itself): show it as running. */
+    public void showServerRunning() {
+        isRunning = true;
+        SwingUtilities.invokeLater(() -> modeSelector.setSelectedItem("HOST MODE"));
+        updateButtonStyle();
+    }
+
     private void updateButtonStyle() {
         SwingUtilities.invokeLater(() -> {
             boolean serverUp = server.isRunning;

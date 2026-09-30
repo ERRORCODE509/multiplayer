@@ -21,6 +21,13 @@ public class MultiplayerModPlugin extends BaseModPlugin {
     private static ClientScripts clientScriptsInstance;
     private static ServerScripts serverScriptsInstance;
 
+    /**
+     * Started by the multiplayer launcher as a server instance (-Dmultiplayer.serverMode=true): a game that only
+     * holds the world. It hosts as dedicated, on -Dmultiplayer.port, as soon as a save is loaded.
+     */
+    public static final boolean SERVER_MODE = Boolean.getBoolean("multiplayer.serverMode");
+    private static final int SERVER_MODE_PORT = Integer.getInteger("multiplayer.port", 20603);
+
     @Override
     public void onApplicationLoad() throws Exception {
         super.onApplicationLoad();
@@ -40,6 +47,10 @@ public class MultiplayerModPlugin extends BaseModPlugin {
             new MultiplayerWatchdog(clientInstance, serverInstance).start();}
 
         MultiplayerLog.log().info("Multiplayer mod UI initialized");
+        if (SERVER_MODE) {
+            uiInstance.setTitle("Starsector Multiplayer - server instance (port " + SERVER_MODE_PORT + ")");
+            MultiplayerLog.log().info("SERVER INSTANCE: load the world save (Load Game) and hosting starts by itself on port " + SERVER_MODE_PORT);
+        }
     }
 
     @Override
@@ -57,6 +68,25 @@ public class MultiplayerModPlugin extends BaseModPlugin {
         }
         Global.getSector().addTransientScript(serverScriptsInstance);
         MultiplayerLog.log().info("registered scripts");
+
+        if (SERVER_MODE && !serverInstance.isRunning) {
+            startServerInstance();
+        }
+    }
+
+    /** Server mode: host the loaded save as dedicated, and keep running while the window isn't focused. */
+    private void startServerInstance() {
+        try {
+            Global.getSettings().setBoolean("idleWhileWindowNotVisible", false);
+            serverInstance.setPort(SERVER_MODE_PORT);
+            serverInstance.setDedicated(true);
+            serverInstance.start();
+            uiInstance.showServerRunning();
+            org.lwjgl.opengl.Display.setTitle("Starsector - multiplayer server (port " + SERVER_MODE_PORT + ")");
+            MultiplayerLog.log().info("SERVER INSTANCE: hosting this save as dedicated on port " + SERVER_MODE_PORT);
+        } catch (Exception e) {
+            MultiplayerLog.log().error("SERVER INSTANCE: couldn't start hosting", e);
+        }
     }
 
     @Override
