@@ -25,9 +25,14 @@ public class Server {
     public final ConcurrentHashMap<String, ClientHandler> clients = new ConcurrentHashMap<>();
     private ExecutorService threadPool;
     private  ServerListener listener;
-    public ClientHandler authority;
+    public volatile ClientHandler authority;
     /** The host's game version, seed and mods, sent in every welcome so joiners can check they match. */
     private volatile JSONObject hostGame;
+    /**
+     * Work that reads or changes the game, handed over by the network threads (the game isn't thread safe).
+     * ServerScripts runs it on the game thread every frame.
+     */
+    public final ConcurrentLinkedQueue<Runnable> gameThreadTasks = new ConcurrentLinkedQueue<>();
 
     public Server(int port) {
         this.port = port;
@@ -156,11 +161,17 @@ public class Server {
                     broadcastExcept(clientId, message);
                     break;
                 case "requestAllFleetsSnapshot":
-                    JSONArray fleetsSnapshot = FleetHelper.getFleetsSnapshot();
-
-                    packet.put("commandId", "handleAllFleetsSnapshot");
-                    packet.put("fleets",fleetsSnapshot);
-                    sendTo(clientId, String.valueOf(packet));
+                    //reading every fleet in the sector: done on the game thread by ServerScripts, not here
+                    gameThreadTasks.add(() -> {
+                        try {
+                            JSONObject reply = new JSONObject();
+                            reply.put("commandId", "handleAllFleetsSnapshot");
+                            reply.put("fleets", FleetHelper.getFleetsSnapshot());
+                            sendTo(clientId, String.valueOf(reply));
+                        } catch (Exception e) {
+                            MultiplayerLog.log().error("Failed to build the fleets snapshot for " + clientId, e);
+                        }
+                    });
                     break;
                 case "fleetSnapshot":
                     //noinspection DuplicateBranchesInSwitch
@@ -171,6 +182,10 @@ public class Server {
                     broadcastExcept(clientId, message);
                     break;
                 case "requestFleetSnapshot":
+                    if (authority == null) { //nobody simulates the world yet, nobody can answer
+                        MultiplayerLog.log().warn("requestFleetSnapshot from " + clientId + " dropped: no authority yet");
+                        break;
+                    }
                     packet.put("commandId","requestFleetSnapshot");
                     packet.put("from",clientId);
                     packet.put("fleetId",json.getString("fleetId"));
@@ -193,14 +208,18 @@ public class Server {
                     MultiplayerLog.log().info("client " + clientId + " has unpaused");
                     break;
                 case "requestPlayerFleetSnapshot":
-                    //relay the information to concerned client
-                    clients.get(json.getString("to")).sendMessage(json.toString());
+                    //relay the information to concerned client (who may have left already)
+                    sendTo(json.getString("to"), json.toString());
                     break;
                 case "requestOrbitSnapshotForLocation":
+                    if (authority == null) {
+                        MultiplayerLog.log().warn("requestOrbitSnapshotForLocation from " + clientId + " dropped: no authority yet");
+                        break;
+                    }
                     authority.sendMessage(json.toString());
                     break;
                 case "handleOrbitSnapshotForLocation":
-                    clients.get(json.getString("to")).sendMessage(json.toString());
+                    sendTo(json.getString("to"), json.toString());
                     break;
                 case "handleServerTime":
                     broadcastExcept(clientId,message);
@@ -279,7 +298,7 @@ public class Server {
         private final String clientId;
         private PrintWriter out;
         private final Server server;
-        public boolean isPaused;
+        public volatile boolean isPaused; //written by this client's network thread, read by ServerScripts
 
         public ClientHandler(Socket socket, String clientId, Server server) throws IOException {
             this.socket = socket;
