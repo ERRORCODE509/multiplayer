@@ -23,6 +23,9 @@ public class ClientScripts implements EveryFrameScript {
     private final FleetSync fleetSync = new FleetSync();
     private final WorldSync worldSync = new WorldSync();
     private final SectorScriptsUtility sectorScriptsUtility = new SectorScriptsUtility();
+    /** Orbits drift apart frame by frame on each machine (they don't follow the clock): re-synced this often. */
+    private static final float ORBIT_RESYNC_SECONDS = 10f;
+    private float orbitTimer = 0f;
 
     // Message waitlist coming from client thread
     private static final ConcurrentLinkedQueue<JSONObject> messageQueue = new ConcurrentLinkedQueue<>();
@@ -85,7 +88,20 @@ public class ClientScripts implements EveryFrameScript {
             }
         }
 
-        // --- 2. send updates (TICKS 20 TPS) ---
+        // --- 2. keep the orbits where we are in step with the server's ---
+        if (!client.isSelfHosted) {
+            orbitTimer += amount;
+            if (orbitTimer >= ORBIT_RESYNC_SECONDS) {
+                orbitTimer = 0f;
+                try {
+                    WorldSync.requestOrbitSnapshotForLocation(Global.getSector().getPlayerFleet().getContainingLocation(), client);
+                } catch (Exception e) {
+                    MultiplayerLog.log().warn("Couldn't ask for the orbits: " + e.getMessage());
+                }
+            }
+        }
+
+        // --- 3. send updates (TICKS 20 TPS) ---
         timer += amount;
         float INTERVAL = 0.05f;
         if (timer >= INTERVAL) {
@@ -203,6 +219,12 @@ public class ClientScripts implements EveryFrameScript {
                     }
                     break;
                 case "handleServerTime":
+                    if (!client.isSelfHosted) { //the host's own game is the server's clock
+                        long corrected = ClockUtility.syncToServer(Global.getSector().getClock(), message.getLong("timestamp"));
+                        if (corrected != 0) {
+                            MultiplayerLog.log().info("Clock set to the server's (it was " + (corrected / 3600000f) + " game hours off)");
+                        }
+                    }
                     client.ui.setServerTime(message.getLong("timestamp"));
                     break;
                 default:
