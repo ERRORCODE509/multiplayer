@@ -40,7 +40,7 @@ public class PauseUtility {
                     }
 
                     //catch up with the various updates
-                    if(!client.isAuthority){
+                    if(!client.isSelfHosted){ //the host's own game is the world
                         WorldSync.requestOrbitSnapshotForLocation(Global.getSector().getPlayerFleet().getContainingLocation(),client);
                     }
 

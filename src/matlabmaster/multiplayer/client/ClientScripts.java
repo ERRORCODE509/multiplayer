@@ -138,6 +138,7 @@ public class ClientScripts implements EveryFrameScript {
                     int i;
                     for(i = 0; i < message.getJSONArray("fleets").length() ; i ++){
                         JSONObject unserializedFleet = (JSONObject) message.getJSONArray("fleets").get(i);
+                        if (isOwnFleet(unserializedFleet.getString("id"))) continue; //the server's copy of our own fleet
                         if(Global.getSector().getEntityById(unserializedFleet.getString("id")) instanceof CampaignFleetAPI){
                             ((CampaignFleetAPI) Global.getSector().getEntityById(unserializedFleet.getString("id"))).despawn();
                         }
@@ -146,6 +147,7 @@ public class ClientScripts implements EveryFrameScript {
                     MultiplayerLog.log().info("added " + i + " fleets");
                     break;
                 case "fleetSnapshot":
+                    if (isOwnFleet(message.getJSONObject("fleet").getString("id"))) break;
                     FleetSerializer.unSerializeFleet(message.getJSONObject("fleet"),Global.getFactory().createEmptyFleet(Faction.NO_FACTION,true));
                     break;
                 case "playerLeft":
@@ -169,22 +171,15 @@ public class ClientScripts implements EveryFrameScript {
                         }
                     }
                     break;
-                case "youAreAuthority":
-                    client.isAuthority = true;
-                    MultiplayerLog.log().debug("you are the authority");
-                    break;
-                case "youAreNoLongerAuthority":
-                    client.isAuthority = false;
-                    MultiplayerLog.log().debug("you are no longer the authority");
-                    break;
-                case "requestFleetSnapshot":
-                    packet = new JSONObject();
-                    packet.put("fleet",FleetSerializer.serializeFleet((CampaignFleetAPI) Global.getSector().getEntityById(message.getString("fleetId"))));
-                    packet.put("commandId","handleFleetSnapshotRequest");
-                    packet.put("to",message.getString("from"));
-                    client.send(packet.toString());
+                case "worldPaused":
+                case "worldResumed":
+                    //the server's game is the world; in "host current game" mode it stops while the host is in a dialog
+                    boolean worldPaused = "worldPaused".equals(commandId);
+                    MultiplayerLog.log().info(worldPaused ? "The host paused the world (dialog or menu): NPC fleets wait" : "The world runs again");
+                    if (client.ui != null) client.ui.setWorldPaused(worldPaused);
                     break;
                 case "handleFleetSnapshotRequest":
+                    if (isOwnFleet(message.getJSONObject("fleet").getString("id"))) break;
                     FleetSerializer.unSerializeFleet(message.getJSONObject("fleet"),Global.getFactory().createEmptyFleet(Faction.NO_FACTION,true));
                     MultiplayerLog.log().info("spawned "+ message.getJSONObject("fleet").getString("id")+ " fleet following request");
                     break;
@@ -194,15 +189,6 @@ public class ClientScripts implements EveryFrameScript {
                     packet.put("to",message.getString("from"));
                     packet.put("fleet",FleetSerializer.serializeFleet(Global.getSector().getPlayerFleet()));
                     client.send(packet.toString());
-                    break;
-                case "requestOrbitSnapshotForLocation":
-                    LocationAPI location;
-                    if(Objects.equals(message.getString("location"), "hyperspace")){
-                        location = Global.getSector().getHyperspace();
-                    }else{
-                        location = Global.getSector().getStarSystem(message.getString("location"));
-                    }
-                    worldSync.sendOrbitSnapshotForLocation(location,client,message.getString("from"));
                     break;
                 case "handleOrbitSnapshotForLocation":
                     JSONObject orbits = message.getJSONObject("orbits");
@@ -266,15 +252,19 @@ public class ClientScripts implements EveryFrameScript {
         }
     }
 
+    /** Our own player fleet, which only we are in charge of: never replaced by a copy from someone else. */
+    private boolean isOwnFleet(String fleetId) {
+        return Global.getSector().getPlayerFleet() != null && fleetId.equals(Global.getSector().getPlayerFleet().getId());
+    }
+
     private void executeTick() {
         try {
             fleetSync.sendOwnFleetUpdate(client);
-            if(client.isAuthority){
-                fleetSync.sendGlobalFleetsUpdate(client);
-                ClockUtility.sendServerTime(client);
-                ClockUtility.setUiTime(client);
+            if (client.isSelfHosted) {
+                //the host's own client shares the server's game, which is the world: its scripts must run
                 sectorScriptsUtility.restoreScripts();
-            }else{
+            } else {
+                //the world runs on the server's game; here it's only shown
                 sectorScriptsUtility.disableScripts();
             }
         } catch (Exception e) {

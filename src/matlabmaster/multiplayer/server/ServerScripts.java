@@ -1,11 +1,35 @@
 package matlabmaster.multiplayer.server;
 
 import com.fs.starfarer.api.EveryFrameScript;
-import org.json.JSONException;
+import com.fs.starfarer.api.Global;
+import com.fs.starfarer.api.campaign.CampaignFleetAPI;
+import com.fs.starfarer.api.campaign.LocationAPI;
+import com.fs.starfarer.api.impl.campaign.ids.MemFlags;
+import matlabmaster.multiplayer.MultiplayerLog;
+import matlabmaster.multiplayer.MultiplayerModPlugin;
+import matlabmaster.multiplayer.updates.FleetSync;
+import matlabmaster.multiplayer.utils.ClockUtility;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Runs on the game thread of the game hosting the server, which is the only authority: this game's NPC fleets,
+ * clock and scripts are the world. Sends the world to the clients 20 times a second, answers what the network
+ * threads handed over, and tells the clients when the world stops.
+ */
 public class ServerScripts implements EveryFrameScript {
+    private static final float INTERVAL = 0.05f; //20 ticks per second, like the clients
+    /** Hides a dedicated server's own player fleet from the NPC fleets of its world (nobody plays it). */
+    private static final String HIDDEN_ID = "multiplayer_dedicated_server";
+
     private final Server serverInstance;
+    private FleetSync fleetSync = new FleetSync();
+    private float timer = 0f;
+    private boolean wasRunning = false;
+    private boolean worldWasPaused = false;
+    private boolean ownFleetHidden = false;
 
     public ServerScripts(Server serverInstance){
         this.serverInstance = serverInstance;
@@ -28,35 +52,95 @@ public class ServerScripts implements EveryFrameScript {
         while ((task = serverInstance.gameThreadTasks.poll()) != null) {
             if (serverInstance.isRunning) task.run();
         }
-        if(serverInstance.isRunning){
-            // Check if authority is null or points to a disconnected client
-            if(serverInstance.authority == null || !serverInstance.clients.containsValue(serverInstance.authority)){
-                for(Server.ClientHandler handler : serverInstance.clients.values()){
-                    if(!handler.isPaused){
-                        serverInstance.authority = handler;
-                        JSONObject packet = new JSONObject();
-                        try {
-                            packet.put("commandId","youAreAuthority");
-                        } catch (JSONException e) {
-                            throw new RuntimeException(e);
-                        }
-                        handler.sendMessage(packet.toString());
-                        return;
-                    }
-                }
-                //if we are here this means no unpaused client have been found, to ensure sync if a new client joins we must have any existing client has authority
-                for(Server.ClientHandler handler : serverInstance.clients.values()){
-                    serverInstance.authority = handler;
-                    JSONObject packet = new JSONObject();
-                    try {
-                        packet.put("commandId","youAreAuthority");
-                    } catch (JSONException e) {
-                        throw new RuntimeException(e);
-                    }
-                    handler.sendMessage(packet.toString());
-                    return;
-                }
+        if (!serverInstance.isRunning) {
+            if (wasRunning) stopped();
+            return;
+        }
+        if (!wasRunning) started();
+
+        boolean paused = Global.getSector().isPaused();
+        if (serverInstance.isDedicated()) {
+            hideOwnFleet(true);
+            //nobody plays here, so nothing should hold the world up
+            if (paused && !Global.getSector().getCampaignUI().isShowingDialog()) {
+                Global.getSector().setPaused(false);
+                paused = false;
             }
+        }
+        if (paused != worldWasPaused) {
+            worldWasPaused = paused;
+            broadcastWorldPaused(paused);
+        }
+        if (paused) return;
+
+        timer += amount;
+        if (timer < INTERVAL) return;
+        timer = Math.min(timer - INTERVAL, INTERVAL); //never try to catch up on a backlog of ticks
+        try {
+            fleetSync.sendGlobalFleetsUpdate(serverInstance::broadcastWorld);
+            serverInstance.broadcastWorld(ClockUtility.serverTimePacket().toString());
+            if (MultiplayerModPlugin.getUI() != null) {
+                MultiplayerModPlugin.getUI().setServerTime(Global.getSector().getClock().getTimestamp());
+            }
+        } catch (Exception e) {
+            MultiplayerLog.log().error("Failed to send the world update: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Undo anything hosting changed in this game before it's saved, so the save is a normal single-player save
+     * (the next frame redoes it while still hosting).
+     */
+    public void beforeGameSave() {
+        hideOwnFleet(false);
+    }
+
+    private void started() {
+        wasRunning = true;
+        fleetSync = new FleetSync(); //the new clients know nothing yet: start the diffs from scratch
+        worldWasPaused = false;
+        timer = 0f;
+        MultiplayerLog.log().info("This game is now the world for every client (" + (serverInstance.isDedicated() ? "dedicated" : "host current game") + ")");
+    }
+
+    private void stopped() {
+        wasRunning = false;
+        hideOwnFleet(false);
+        //a dedicated server kept copies of the players' fleets: they don't belong in its game
+        List<CampaignFleetAPI> copies = new ArrayList<>();
+        for (LocationAPI location : Global.getSector().getAllLocations()) {
+            for (CampaignFleetAPI fleet : location.getFleets()) {
+                if (fleet.hasTag("playerFleet") && !fleet.isPlayerFleet()) copies.add(fleet);
+            }
+        }
+        for (CampaignFleetAPI fleet : copies) {
+            fleet.getContainingLocation().removeEntity(fleet);
+        }
+        if (!copies.isEmpty()) MultiplayerLog.log().info("Removed " + copies.size() + " player fleet copies from the server's game");
+    }
+
+    private void hideOwnFleet(boolean hide) {
+        if (hide == ownFleetHidden) return;
+        CampaignFleetAPI own = Global.getSector().getPlayerFleet();
+        if (own == null) return;
+        ownFleetHidden = hide;
+        if (hide) {
+            own.getMemoryWithoutUpdate().set(MemFlags.FLEET_IGNORED_BY_OTHER_FLEETS, true);
+            own.getStats().getDetectedRangeMod().modifyMult(HIDDEN_ID, 0f, "Dedicated multiplayer server");
+        } else {
+            own.getMemoryWithoutUpdate().unset(MemFlags.FLEET_IGNORED_BY_OTHER_FLEETS);
+            own.getStats().getDetectedRangeMod().unmodify(HIDDEN_ID);
+        }
+    }
+
+    private void broadcastWorldPaused(boolean paused) {
+        try {
+            JSONObject packet = new JSONObject();
+            packet.put("commandId", paused ? "worldPaused" : "worldResumed");
+            serverInstance.broadcastWorld(packet.toString());
+            MultiplayerLog.log().info(paused ? "The world is paused for every client (the host is in a dialog or menu)" : "The world runs again");
+        } catch (Exception e) {
+            MultiplayerLog.log().error("Failed to tell the clients the world " + (paused ? "paused" : "resumed"), e);
         }
     }
 }

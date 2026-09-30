@@ -32,7 +32,8 @@ public class Client {
     /** Set by connect(); the rest of joining touches the game, so ClientScripts finishes it on the game thread. */
     private volatile boolean joinPending = false;
     public boolean isSelfHosted = false;
-    public boolean isAuthority = false;
+    /** "Host current game": the server running in this same game, which the host's own client joins. */
+    public Server localServer;
     public boolean wasPaused = false;
     public UI ui;
     public String clientId;
@@ -63,6 +64,10 @@ public class Client {
         } catch (IOException | RuntimeException e) {
             try { socket.close(); } catch (IOException ignored) {}
             throw e;
+        }
+        if (isSelfHosted && localServer != null) {
+            //we share the server's game (the world): the server must not send it to us
+            localServer.setLocalClientId(clientId);
         }
         isConnected = true;
         //connect() runs on a UI thread, and the game isn't thread safe: everything that touches the game

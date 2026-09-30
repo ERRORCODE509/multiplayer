@@ -66,6 +66,10 @@ public class MultiplayerModPlugin extends BaseModPlugin {
         if (clientScriptsInstance != null) {
             clientScriptsInstance.restoreSectorScripts();
         }
+        //a dedicated server hides its own player fleet from its world while hosting; not in the save
+        if (serverScriptsInstance != null) {
+            serverScriptsInstance.beforeGameSave();
+        }
     }
 
     public static Server getServer() {

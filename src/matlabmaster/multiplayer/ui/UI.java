@@ -137,6 +137,8 @@ public class UI extends JFrame {
                 int port = parsePort();
                 if (port <= 0) return;
                 server.setPort(port);
+                //"host as dedicated": nobody plays in this game, it only holds the world
+                server.setDedicated(!asCurrentGame);
                 server.start();
                 isRunning = true;
                 final int connectPort = port;
@@ -147,6 +149,7 @@ public class UI extends JFrame {
                         try {
                             Thread.sleep(200); // Pause de 200ms pour laisser le port s'ouvrir
                             client.isSelfHosted = true;
+                            client.localServer = server;
                             client.connect("127.0.0.1", connectPort);
                             updateButtonStyle();
                         } catch (Exception ex) {
@@ -252,6 +255,14 @@ public class UI extends JFrame {
         }
     }
 
+    /** The server's world stopped (host in a dialog or menu, "host current game" mode) or runs again. */
+    public void setWorldPaused(boolean paused) {
+        SwingUtilities.invokeLater(() -> {
+            String text = serverTimeLabel.getText().replace(" (paused by the host)", "");
+            serverTimeLabel.setText(paused ? text + " (paused by the host)" : text);
+        });
+    }
+
     public void showUI() { SwingUtilities.invokeLater(() -> setVisible(true)); }
 
     /**
@@ -270,7 +281,8 @@ public class UI extends JFrame {
 
         SwingUtilities.invokeLater(() -> {
             String formattedTime = String.format("%02d %02d %s %03d : %02d:00", day, month, shortMonth, year, hour);
-            serverTimeLabel.setText("Server Time: " + formattedTime);
+            boolean paused = serverTimeLabel.getText().endsWith(" (paused by the host)");
+            serverTimeLabel.setText("Server Time: " + formattedTime + (paused ? " (paused by the host)" : ""));
         });
     }
 }

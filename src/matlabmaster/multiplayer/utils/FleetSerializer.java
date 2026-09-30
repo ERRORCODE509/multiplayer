@@ -277,7 +277,8 @@ public class FleetSerializer {
             serializedFleet.put(key, movement.get(key));
         }
         serializedFleet.put("factionId", fleet.getFaction().getId());
-        serializedFleet.put("isPlayerFleet", fleet.isPlayerFleet());
+        //also true for this game's copy of another player's fleet, so it stays marked as a player's on the other side
+        serializedFleet.put("isPlayerFleet", fleet.isPlayerFleet() || fleet.hasTag("playerFleet"));
         serializedFleet.put("isTransponderOn", fleet.isTransponderOn());
         serializedFleet.put("aiMode",fleet.isAIMode());
         serializedFleet.put("name",fleet.getName());

@@ -11,13 +11,19 @@ import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.UserError;
 import matlabmaster.multiplayer.utils.CompatibilityUtility;
 import matlabmaster.multiplayer.utils.FleetHelper;
+import matlabmaster.multiplayer.utils.FleetSerializer;
+import matlabmaster.multiplayer.updates.WorldSync;
+import com.fs.starfarer.api.campaign.CampaignFleetAPI;
+import com.fs.starfarer.api.campaign.LocationAPI;
+import com.fs.starfarer.api.campaign.SectorEntityToken;
+import com.fs.starfarer.campaign.Faction;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 public class Server {
     /** Bump whenever client and server messages change in a way an older version can't handle; checked on join. */
-    public static final int PROTOCOL_VERSION = 1;
+    public static final int PROTOCOL_VERSION = 2; //2: the server's game is the only authority
 
     private int port;
     private ServerSocket serverSocket;
@@ -25,7 +31,18 @@ public class Server {
     public final ConcurrentHashMap<String, ClientHandler> clients = new ConcurrentHashMap<>();
     private ExecutorService threadPool;
     private  ServerListener listener;
-    public volatile ClientHandler authority;
+    /** How the server names itself in "to" / "from" fields. */
+    public static final String SERVER_ID = "server";
+    /**
+     * The game that hosts the server is the only authority: its clock, scripts and NPC fleets are the world, and
+     * ServerScripts sends them to the clients. "Host as dedicated": nobody plays in this game, so it keeps its
+     * own copies of the players' fleets (in "host current game" mode the host's own client does that).
+     */
+    private volatile boolean dedicated;
+    /** "Host current game": the host's own client, which shares this game (the world), so it's never sent the world. */
+    private volatile String localClientId;
+    /** Player fleets a dedicated server has asked their client for in full, so it asks only once. */
+    private final Set<String> pendingPlayerSnapshots = ConcurrentHashMap.newKeySet();
     /** The host's game version, seed and mods, sent in every welcome so joiners can check they match. */
     private volatile JSONObject hostGame;
     /**
@@ -40,6 +57,19 @@ public class Server {
 
     public void setPort(int port) {
         this.port = port;
+    }
+
+    public void setDedicated(boolean dedicated) {
+        this.dedicated = dedicated;
+    }
+
+    public boolean isDedicated() {
+        return dedicated;
+    }
+
+    /** Called by the host's own client (same game) once it knows its id. */
+    public void setLocalClientId(String localClientId) {
+        this.localClientId = localClientId;
     }
 
     public interface ServerListener{
@@ -159,6 +189,7 @@ public class Server {
             switch (commandId) {
                 case "playerFleetUpdate":
                     broadcastExcept(clientId, message);
+                    if (dedicated) gameThreadTasks.add(() -> applyPlayerFleetUpdate(clientId, json));
                     break;
                 case "requestAllFleetsSnapshot":
                     //reading every fleet in the sector: done on the game thread by ServerScripts, not here
@@ -166,7 +197,8 @@ public class Server {
                         try {
                             JSONObject reply = new JSONObject();
                             reply.put("commandId", "handleAllFleetsSnapshot");
-                            reply.put("fleets", FleetHelper.getFleetsSnapshot());
+                            //a dedicated server's own player fleet isn't a player: leave it out
+                            reply.put("fleets", FleetHelper.getFleetsSnapshot(!dedicated));
                             sendTo(clientId, String.valueOf(reply));
                         } catch (Exception e) {
                             MultiplayerLog.log().error("Failed to build the fleets snapshot for " + clientId, e);
@@ -174,55 +206,57 @@ public class Server {
                     });
                     break;
                 case "fleetSnapshot":
-                    //noinspection DuplicateBranchesInSwitch
                     broadcastExcept(clientId, message);
-                    break;
-                case "globalFleetsUpdate":
-                    //noinspection DuplicateBranchesInSwitch
-                    broadcastExcept(clientId, message);
+                    if (dedicated) gameThreadTasks.add(() -> spawnPlayerFleet(json));
                     break;
                 case "requestFleetSnapshot":
-                    if (authority == null) { //nobody simulates the world yet, nobody can answer
-                        MultiplayerLog.log().warn("requestFleetSnapshot from " + clientId + " dropped: no authority yet");
-                        break;
-                    }
-                    packet.put("commandId","requestFleetSnapshot");
-                    packet.put("from",clientId);
-                    packet.put("fleetId",json.getString("fleetId"));
-                    authority.sendMessage(packet.toString());
-                    //relay request to authority client
-                    //send back reply to original asker
+                    //the world is this game: answer from it, on the game thread
+                    String fleetId = json.getString("fleetId");
+                    gameThreadTasks.add(() -> {
+                        try {
+                            SectorEntityToken fleet = Global.getSector().getEntityById(fleetId);
+                            if (!(fleet instanceof CampaignFleetAPI)) return; //gone already; the next update says so
+                            JSONObject reply = new JSONObject();
+                            reply.put("commandId", "handleFleetSnapshotRequest");
+                            reply.put("to", clientId);
+                            reply.put("fleet", FleetSerializer.serializeFleet((CampaignFleetAPI) fleet));
+                            sendTo(clientId, reply.toString());
+                        } catch (Exception e) {
+                            MultiplayerLog.log().error("Failed to send fleet " + fleetId + " to " + clientId, e);
+                        }
+                    });
                     break;
                 case "handleFleetSnapshotRequest":
-                    sendTo(json.getString("to"),json.toString());
-                    break;
-                case "paused":
-                    clients.get(clientId).isPaused = true;
-                    MultiplayerLog.log().info("client " + clientId + " has paused");
-                    if(clients.get(clientId) == authority){
-                        authorityManager(this);
+                    if (SERVER_ID.equals(json.optString("to"))) { //a player's fleet a dedicated server asked for
+                        if (dedicated) gameThreadTasks.add(() -> spawnPlayerFleet(json));
+                    } else {
+                        sendTo(json.getString("to"), json.toString());
                     }
                     break;
+                case "paused":
                 case "unpaused":
-                    clients.get(clientId).isPaused = false;
-                    MultiplayerLog.log().info("client " + clientId + " has unpaused");
+                    //a player in a dialog; the world doesn't depend on players any more, so this is only logged
+                    MultiplayerLog.log().info("client " + clientId + " has " + commandId);
                     break;
                 case "requestPlayerFleetSnapshot":
                     //relay the information to concerned client (who may have left already)
                     sendTo(json.getString("to"), json.toString());
                     break;
                 case "requestOrbitSnapshotForLocation":
-                    if (authority == null) {
-                        MultiplayerLog.log().warn("requestOrbitSnapshotForLocation from " + clientId + " dropped: no authority yet");
-                        break;
-                    }
-                    authority.sendMessage(json.toString());
-                    break;
-                case "handleOrbitSnapshotForLocation":
-                    sendTo(json.getString("to"), json.toString());
-                    break;
-                case "handleServerTime":
-                    broadcastExcept(clientId,message);
+                    String location = json.getString("location");
+                    gameThreadTasks.add(() -> {
+                        try {
+                            LocationAPI loc = "hyperspace".equals(location) ? Global.getSector().getHyperspace() : Global.getSector().getStarSystem(location);
+                            if (loc == null) return;
+                            JSONObject reply = new JSONObject();
+                            reply.put("commandId", "handleOrbitSnapshotForLocation");
+                            reply.put("to", clientId);
+                            reply.put("orbits", WorldSync.buildOrbitSnapshot(loc));
+                            sendTo(clientId, reply.toString());
+                        } catch (Exception e) {
+                            MultiplayerLog.log().error("Failed to send the orbits of " + location + " to " + clientId, e);
+                        }
+                    });
                     break;
                 default:
                     MultiplayerLog.log().warn("Unknown command: " + commandId);
@@ -243,51 +277,44 @@ public class Server {
         return id;
     }
 
-    private void authorityManager(Server server) throws JSONException {
-        //if this method was called this means that the authority paused / left
-        //to ensure smooth gameplay across clients a new authority must be set so that updates keep flowing
-        //if all the clients are paused keep the authority the same
-        ClientHandler newAuthority = null;
-        ClientHandler lastClient = null;
-        ClientHandler originalAuthority = server.authority;
-        
-        // Clean up: if current authority is no longer in clients, clear it
-        if(originalAuthority != null && !server.clients.containsValue(originalAuthority)){
-            originalAuthority = null;
-            server.authority = null;
-        }
-        
-        for (ClientHandler client : server.clients.values()){
-            lastClient = client;
-            if(!client.isPaused){
-                newAuthority = client;
-                break; // Found an unpaused client, use them as authority
+    /** Every client except the host's own one (which shares this game): who gets the world's updates. */
+    public void broadcastWorld(String message) {
+        for (Map.Entry<String, ClientHandler> entry : clients.entrySet()) {
+            if (!entry.getKey().equals(localClientId)) {
+                entry.getValue().sendMessage(message);
             }
         }
-        
-        // If no unpaused client found, keep the current authority (or set to last client if authority was removed)
-        if(newAuthority == null){
-            if(authority != null && server.clients.containsValue(authority)){
-                // Keep current authority if they're still in the clients list
-                return;
-            } else {
-                // Authority was removed, set to last client (or null if no clients)
-                // If no clients remain, authority will be null (handled by ServerScripts)
-                authority = lastClient;
-            }
-        } else {
-            authority = newAuthority;
-        }
+    }
 
-        if(authority != originalAuthority){
-            if(originalAuthority != null){
-                JSONObject packet = new JSONObject();
-                packet.put("commandId","youAreNoLongerAuthority");
-                originalAuthority.sendMessage(packet.toString());
+    /** Dedicated mode, game thread: apply a player's fleet update to this game's copy of their fleet, or ask for all of it. */
+    private void applyPlayerFleetUpdate(String clientId, JSONObject update) {
+        try {
+            String fleetId = update.getString("fleetId");
+            SectorEntityToken fleet = Global.getSector().getEntityById(fleetId);
+            if (fleet instanceof CampaignFleetAPI) {
+                FleetSerializer.applyFleetDiff((CampaignFleetAPI) fleet, update.getJSONObject("changes"));
+            } else if (pendingPlayerSnapshots.add(fleetId)) {
+                JSONObject ask = new JSONObject();
+                ask.put("commandId", "requestPlayerFleetSnapshot");
+                ask.put("to", clientId);
+                ask.put("from", SERVER_ID);
+                sendTo(clientId, ask.toString());
             }
-            JSONObject packet = new JSONObject();
-            packet.put("commandId","youAreAuthority");
-            authority.sendMessage(packet.toString());
+        } catch (Exception e) {
+            MultiplayerLog.log().error("Failed to apply a fleet update from " + clientId, e);
+        }
+    }
+
+    /** Dedicated mode, game thread: add a copy of a player's fleet to this game, so NPC fleets can see it. */
+    private void spawnPlayerFleet(JSONObject message) {
+        try {
+            JSONObject fleet = message.getJSONObject("fleet");
+            String fleetId = fleet.getString("id");
+            pendingPlayerSnapshots.remove(fleetId);
+            if (Global.getSector().getEntityById(fleetId) instanceof CampaignFleetAPI) return;
+            FleetSerializer.unSerializeFleet(fleet, Global.getFactory().createEmptyFleet(Faction.NO_FACTION, true));
+        } catch (Exception e) {
+            MultiplayerLog.log().error("Failed to add a player's fleet to the server's game", e);
         }
     }
 
@@ -298,7 +325,6 @@ public class Server {
         private final String clientId;
         private PrintWriter out;
         private final Server server;
-        public volatile boolean isPaused; //written by this client's network thread, read by ServerScripts
 
         public ClientHandler(Socket socket, String clientId, Server server) throws IOException {
             this.socket = socket;
@@ -342,18 +368,13 @@ public class Server {
         }
 
         public void closeConnection() {
-            boolean wasAuthority = (this == server.authority);
             clients.remove(clientId);
-            
-            // If the authority disconnected, reassign authority
-            if (wasAuthority) {
-                try {
-                    authorityManager(server);
-                } catch (JSONException e) {
-                    MultiplayerLog.log().error("Failed to reassign authority after disconnect: " + e.getMessage(), e);
-                }
+            if (clientId.equals(localClientId)) localClientId = null;
+            if (dedicated) { //remove this game's copy of their fleet
+                pendingPlayerSnapshots.remove(clientId);
+                gameThreadTasks.add(() -> FleetHelper.removeFleetById(clientId));
             }
-            
+
             try {
                 if (socket != null && !socket.isClosed()) {
                     socket.close();

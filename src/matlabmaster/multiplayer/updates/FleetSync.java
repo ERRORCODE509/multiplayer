@@ -15,6 +15,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Consumer;
 
 public class FleetSync
 {
@@ -53,6 +54,11 @@ public class FleetSync
      * as soon as they're gone, movement every tick, and everything else within FULL_SYNC_TICKS ticks.
      */
     public void sendGlobalFleetsUpdate(Client client) throws JSONException {
+        sendGlobalFleetsUpdate(client::send);
+    }
+
+    /** Same, sending the message to any destination (the server broadcasts it to the clients). */
+    public void sendGlobalFleetsUpdate(Consumer<String> send) throws JSONException {
         int slice = globalTick++ % FULL_SYNC_TICKS;
         JSONObject diffs = new JSONObject();
         Set<String> present = new HashSet<>();
@@ -111,7 +117,7 @@ public class FleetSync
             JSONObject packet = new JSONObject();
             packet.put("commandId", "globalFleetsUpdate");
             packet.put("updates", diffs);
-            client.send(packet.toString());
+            send.accept(packet.toString());
         }
     }
 }

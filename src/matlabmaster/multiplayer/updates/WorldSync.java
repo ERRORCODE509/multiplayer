@@ -17,8 +17,16 @@ import java.util.Objects;
 public class WorldSync {
 
     public void sendOrbitSnapshotForLocation(LocationAPI location, Client client, String from) throws JSONException {
-        List<SectorEntityToken> allEntities = location.getAllEntities();
         JSONObject packet = new JSONObject();
+        packet.put("commandId","handleOrbitSnapshotForLocation");
+        packet.put("to",from);
+        packet.put("orbits",buildOrbitSnapshot(location));
+        client.send(String.valueOf(packet));
+    }
+
+    /** The orbits of everything orbiting in a location, keyed by entity id (what handleOrbitSnapshotForLocation applies). */
+    public static JSONObject buildOrbitSnapshot(LocationAPI location) throws JSONException {
+        List<SectorEntityToken> allEntities = location.getAllEntities();
         JSONObject orbits = new JSONObject();
         for(SectorEntityToken entity : allEntities){
             if(entity.getOrbit() != null && !(entity instanceof AsteroidAPI) && !Objects.equals(entity.getCustomEntityType(), "orbital_junk")){
@@ -35,10 +43,7 @@ public class WorldSync {
                 }
             }
         }
-        packet.put("commandId","handleOrbitSnapshotForLocation");
-        packet.put("to",from);
-        packet.put("orbits",orbits);
-        client.send(String.valueOf(packet));
+        return orbits;
     }
     public static void requestOrbitSnapshotForLocation(LocationAPI location,Client client) throws JSONException {
         JSONObject packet = new JSONObject();

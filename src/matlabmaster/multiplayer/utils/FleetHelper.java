@@ -23,9 +23,15 @@ public class FleetHelper {
         }
     }
     public static JSONArray getFleetsSnapshot() throws JSONException {
+        return getFleetsSnapshot(true);
+    }
+
+    /** Every fleet in the sector; includeOwnPlayerFleet false leaves this game's own player fleet out (a dedicated server's). */
+    public static JSONArray getFleetsSnapshot(boolean includeOwnPlayerFleet) throws JSONException {
         JSONArray fleets = new JSONArray();
         for(LocationAPI location : Global.getSector().getAllLocations()){
             for (CampaignFleetAPI fleet : location.getFleets()){
+                if (!includeOwnPlayerFleet && fleet.isPlayerFleet()) continue;
                 if(!fleet.isStationMode()){ //sometimes stations are considered fleets
                     fleets.put(FleetSerializer.serializeFleet(fleet));
                 }
