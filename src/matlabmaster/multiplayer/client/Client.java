@@ -6,6 +6,7 @@ import matlabmaster.multiplayer.UserError;
 import matlabmaster.multiplayer.server.Server;
 import matlabmaster.multiplayer.ui.UI;
 import matlabmaster.multiplayer.updates.WorldSync;
+import matlabmaster.multiplayer.utils.CompatibilityUtility;
 import matlabmaster.multiplayer.utils.FleetHelper;
 import matlabmaster.multiplayer.utils.FleetSerializer;
 import org.json.JSONException;
@@ -15,6 +16,7 @@ import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -142,6 +144,13 @@ public class Client {
             int protocol = welcome.optInt("protocol", 0);
             if (protocol != Server.PROTOCOL_VERSION) {
                 throw new UserError("Version mismatch: the server uses multiplayer protocol " + protocol + " and this client uses " + Server.PROTOCOL_VERSION + "; both players need the same version of the mod");
+            }
+            if (!welcome.has("game")) {
+                throw new UserError("The server didn't say which game it runs; both players need the same version of the mod");
+            }
+            List<String> diffs = CompatibilityUtility.differences(welcome.getJSONObject("game"), CompatibilityUtility.describeThisGame());
+            if (!diffs.isEmpty()) {
+                throw new UserError("Can't join: this game doesn't match the host's.\n  - " + String.join("\n  - ", diffs));
             }
             return welcome.getString("id");
         } catch (JSONException e) {

@@ -9,6 +9,7 @@ import java.util.concurrent.*;
 import com.fs.starfarer.api.Global;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.UserError;
+import matlabmaster.multiplayer.utils.CompatibilityUtility;
 import matlabmaster.multiplayer.utils.FleetHelper;
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -25,6 +26,8 @@ public class Server {
     private ExecutorService threadPool;
     private  ServerListener listener;
     public ClientHandler authority;
+    /** The host's game version, seed and mods, sent in every welcome so joiners can check they match. */
+    private volatile JSONObject hostGame;
 
     public Server(int port) {
         this.port = port;
@@ -47,6 +50,11 @@ public class Server {
             throw new UserError("You cannot host a server while on the main menu, join any singleplayer game then try hosting");
         }
         if (isRunning) return;
+        try {
+            hostGame = CompatibilityUtility.describeThisGame(); //the loaded game can't change while hosting (quitting to the menu stops the server)
+        } catch (JSONException e) {
+            throw new UserError("Couldn't read this game's version, seed and mods: " + e.getMessage());
+        }
         isRunning = true;
         threadPool = Executors.newCachedThreadPool();
 
@@ -69,6 +77,7 @@ public class Server {
                             welcome.put("commandId","welcome");
                             welcome.put("id",clientId);
                             welcome.put("protocol",PROTOCOL_VERSION);
+                            welcome.put("game",hostGame);
                             handler.sendMessage(welcome.toString());
                         } catch (JSONException e) {
                             MultiplayerLog.log().error("failed to welcome " + clientId, e);
