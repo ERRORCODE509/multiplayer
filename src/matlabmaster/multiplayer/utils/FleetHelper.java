@@ -34,6 +34,19 @@ public class FleetHelper {
         return fleets;
     }
 
+    /** Every NPC fleet in the sector: the same fleets getNPCFleetsSnapshot() serializes. */
+    public static List<CampaignFleetAPI> getNPCFleets() {
+        List<CampaignFleetAPI> npcFleets = new ArrayList<>();
+        for(LocationAPI location : Global.getSector().getAllLocations()){
+            for (CampaignFleetAPI fleet : location.getFleets()){
+                if(!fleet.isStationMode() && !fleet.isPlayerFleet() && !fleet.hasTag("playerFleet")){
+                    npcFleets.add(fleet);
+                }
+            }
+        }
+        return npcFleets;
+    }
+
     public static JSONArray getNPCFleetsSnapshot() throws JSONException {
         JSONArray fleets = new JSONArray();
         for(LocationAPI location : Global.getSector().getAllLocations()){

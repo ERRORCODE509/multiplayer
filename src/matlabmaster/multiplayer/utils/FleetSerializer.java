@@ -253,17 +253,30 @@ public class FleetSerializer {
         }
     }
 
+    /** The fields of a serialized fleet that change as it moves; FleetSync sends these every tick, the rest less often. */
+    public static final String[] MOVEMENT_KEYS = {"locationX", "locationY", "location", "moveDestinationX", "moveDestinationY"};
+
+    /** Just the movement fields (MOVEMENT_KEYS), exactly as serializeFleet writes them. */
+    public static JSONObject serializeFleetMovement(CampaignFleetAPI fleet) throws JSONException {
+        JSONObject movement = new JSONObject();
+        movement.put("locationX", ((int)(fleet.getLocation().getX() * 10000)) / 10000d);
+        movement.put("locationY", ((int)(fleet.getLocation().getY() * 10000)) / 10000d);
+        movement.put("location", fleet.getContainingLocation().getId());
+        movement.put("moveDestinationX", ((int)(fleet.getMoveDestination().getX() * 10000)) / 10000d);
+        movement.put("moveDestinationY", ((int)(fleet.getMoveDestination().getY() * 10000)) / 10000d);
+        return movement;
+    }
+
     public static JSONObject serializeFleet(CampaignFleetAPI fleet) throws JSONException {
         JSONObject serializedFleet = new JSONObject();
         serializedFleet.put("id", fleet.getId());
 
         // Coordinates and Location
-        serializedFleet.put("locationX", ((int)(fleet.getLocation().getX() * 10000)) / 10000d);
-        serializedFleet.put("locationY", ((int)(fleet.getLocation().getY() * 10000)) / 10000d);
-        serializedFleet.put("location", fleet.getContainingLocation().getId());
+        JSONObject movement = serializeFleetMovement(fleet);
+        for (String key : MOVEMENT_KEYS) {
+            serializedFleet.put(key, movement.get(key));
+        }
         serializedFleet.put("factionId", fleet.getFaction().getId());
-        serializedFleet.put("moveDestinationX", ((int)(fleet.getMoveDestination().getX() * 10000)) / 10000d);
-        serializedFleet.put("moveDestinationY", ((int)(fleet.getMoveDestination().getY() * 10000)) / 10000d);
         serializedFleet.put("isPlayerFleet", fleet.isPlayerFleet());
         serializedFleet.put("isTransponderOn", fleet.isTransponderOn());
         serializedFleet.put("aiMode",fleet.isAIMode());
