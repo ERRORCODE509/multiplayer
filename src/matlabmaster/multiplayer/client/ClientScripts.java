@@ -62,6 +62,8 @@ public class ClientScripts implements EveryFrameScript {
     @Override
     public void advance(float amount) {
         if (client == null || !client.isConnected()) {
+            //put back any sector scripts taken out while we were not the authority, so they are not lost
+            sectorScriptsUtility.restoreScripts();
             return;
         }
 
@@ -84,6 +86,19 @@ public class ClientScripts implements EveryFrameScript {
             timer -= INTERVAL;
             executeTick();
         }
+    }
+
+    /**
+     * Puts the sector scripts back before the game is saved, so a save made while connected keeps them.
+     * If this client is still not the authority, the next tick takes them out again.
+     */
+    public void restoreSectorScripts() {
+        sectorScriptsUtility.restoreScripts();
+    }
+
+    /** A new game was loaded: any scripts saved from the previous game belong to a sector that is gone. */
+    public void onGameLoad() {
+        sectorScriptsUtility.forgetScripts();
     }
 
     /**

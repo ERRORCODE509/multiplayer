@@ -71,6 +71,7 @@ public class Client {
                 send(packet.toString());
 
                 //prepare for all fleet syncing
+                MultiplayerLog.log().warn("Joining replaces every AI fleet in this game with the host's. Play multiplayer on a copy of your save, not your main one.");
                 MultiplayerLog.log().info("DESTROYING EXISTING FLEETS");
                 FleetHelper.killAllFleetsExceptPlayer();
 
