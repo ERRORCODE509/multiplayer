@@ -11,9 +11,11 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 
@@ -59,6 +61,66 @@ public class FleetSync
 
     /** Same, sending the message to any destination (the server broadcasts it to the clients). */
     public void sendGlobalFleetsUpdate(Consumer<String> send) throws JSONException {
+        JSONObject diffs = computeGlobalDiffs();
+        if (diffs.length() > 0) {
+            JSONObject packet = new JSONObject();
+            packet.put("commandId", "globalFleetsUpdate");
+            packet.put("updates", diffs);
+            send.accept(packet.toString());
+        }
+    }
+
+    /** The NPC fleets present this tick, by id (filled by computeGlobalDiffs). */
+    private final Map<String, CampaignFleetAPI> currentFleets = new HashMap<>();
+    /** Per client: the NPC fleets it has been sent and not told were removed. */
+    private final Map<String, Set<String>> sentToClient = new HashMap<>();
+
+    /**
+     * Server side: each client gets only the NPC fleets its fleet can see (VisibleFleets): a fleet coming into
+     * view is sent in full (ADDED), one going out of view or gone is REMOVED, and the fleets it already has get
+     * this tick's changes. Same message as globalFleetsUpdate, so clients need nothing new. A client whose fleet
+     * isn't in the server's world yet is sent nothing.
+     */
+    public void sendVisibleFleetsUpdates(Map<String, Consumer<String>> clients) throws JSONException {
+        JSONObject diffs = computeGlobalDiffs();
+        sentToClient.keySet().retainAll(clients.keySet());
+        for (Map.Entry<String, Consumer<String>> client : clients.entrySet()) {
+            Set<String> sent = sentToClient.computeIfAbsent(client.getKey(), k -> new HashSet<>());
+            Object own = Global.getSector().getEntityById(client.getKey());
+            CampaignFleetAPI observer = own instanceof CampaignFleetAPI ? (CampaignFleetAPI) own : null;
+            JSONObject updates = new JSONObject();
+            for (Map.Entry<String, CampaignFleetAPI> entry : currentFleets.entrySet()) {
+                String fleetId = entry.getKey();
+                boolean was = sent.contains(fleetId);
+                boolean sees = VisibleFleets.canSee(observer, entry.getValue(), was);
+                if (sees && !was) {
+                    updates.put(fleetId, JsonDiffUtility.instruction("ADDED", lastTickGlobalFleet.getJSONObject(fleetId), null));
+                    sent.add(fleetId);
+                } else if (!sees && was) {
+                    updates.put(fleetId, JsonDiffUtility.instruction("REMOVED", null, fleetId));
+                    sent.remove(fleetId);
+                } else if (sees && diffs.has(fleetId)) {
+                    updates.put(fleetId, diffs.get(fleetId));
+                }
+            }
+            for (String fleetId : new ArrayList<>(sent)) {
+                if (!currentFleets.containsKey(fleetId)) { //gone from the world
+                    updates.put(fleetId, JsonDiffUtility.instruction("REMOVED", null, fleetId));
+                    sent.remove(fleetId);
+                }
+            }
+            if (updates.length() > 0) {
+                JSONObject packet = new JSONObject();
+                packet.put("commandId", "globalFleetsUpdate");
+                packet.put("updates", updates);
+                client.getValue().accept(packet.toString());
+            }
+        }
+    }
+
+    /** This tick's changes to every NPC fleet (see FULL_SYNC_TICKS), keeping lastTickGlobalFleet current. */
+    private JSONObject computeGlobalDiffs() throws JSONException {
+        currentFleets.clear();
         int slice = globalTick++ % FULL_SYNC_TICKS;
         JSONObject diffs = new JSONObject();
         Set<String> present = new HashSet<>();
@@ -66,6 +128,7 @@ public class FleetSync
         for (CampaignFleetAPI fleet : FleetHelper.getNPCFleets()) {
             String fleetId = fleet.getId();
             present.add(fleetId);
+            currentFleets.put(fleetId, fleet);
             JSONObject last = lastTickGlobalFleet.optJSONObject(fleetId);
             if (last == null) { //new fleet: all of it, right away
                 JSONObject full = FleetSerializer.serializeFleet(fleet);
@@ -112,12 +175,6 @@ public class FleetSync
             lastTickGlobalFleet.remove(fleetId);
         }
 
-        // Send Packet
-        if (diffs.length() > 0) {
-            JSONObject packet = new JSONObject();
-            packet.put("commandId", "globalFleetsUpdate");
-            packet.put("updates", diffs);
-            send.accept(packet.toString());
-        }
+        return diffs;
     }
 }

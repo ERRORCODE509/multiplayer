@@ -77,7 +77,7 @@ public class ServerScripts implements EveryFrameScript {
         if (timer < INTERVAL) return;
         timer = Math.min(timer - INTERVAL, INTERVAL); //never try to catch up on a backlog of ticks
         try {
-            fleetSync.sendGlobalFleetsUpdate(serverInstance::broadcastWorld);
+            fleetSync.sendVisibleFleetsUpdates(serverInstance.worldClients()); //each client only what its fleet can see
             serverInstance.broadcastWorld(ClockUtility.serverTimePacket().toString());
             if (MultiplayerModPlugin.getUI() != null) {
                 MultiplayerModPlugin.getUI().setServerTime(Global.getSector().getClock().getTimestamp());
