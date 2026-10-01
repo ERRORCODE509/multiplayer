@@ -371,7 +371,8 @@ public class ClientScripts implements EveryFrameScript {
                     if (!client.isSelfHosted) { //the host's own game is the server's clock
                         long corrected = ClockUtility.syncToServer(Global.getSector().getClock(), message.getLong("timestamp"));
                         boolean jumped = Math.abs(corrected) > ClockUtility.MAX_DRIFT_MS;
-                        if (jumped) MultiplayerLog.log().info("Clock set to the server's (it was " + (corrected / 3600000f) + " game hours off)");
+                        //not while we're paused (a dialog, a battle): our clock stops, the world's doesn't, and it'd say so every second
+                        if (jumped && !Global.getSector().isPaused()) MultiplayerLog.log().info("Clock set to the server's (it was " + (corrected / 3600000f) + " game hours off)");
                         //behind the world (it fast-forwarded, or we ran slow): our colonies' construction catches up
                         //too, the nudges once they add up to a few game hours
                         clockCorrectedDays += corrected / 86400000f;
