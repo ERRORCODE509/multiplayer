@@ -64,6 +64,8 @@ public class ColonyMirrors {
                 JSONObject entry = new JSONObject();
                 entry.put("id", industry.getId());
                 entry.put("building", industry.isBuilding());
+                //how far along, in whole days: the world's copy shows this, not its own progress
+                if (industry.isBuilding()) entry.put("progress", Math.round(industry.getBuildOrUpgradeProgress() * industry.getBuildTime()));
                 industries.put(entry);
             }
             colony.put("industries", industries);
@@ -190,28 +192,20 @@ public class ColonyMirrors {
             }
         }
 
-        Map<String, Boolean> industries = new HashMap<>();
+        Map<String, JSONObject> industries = new HashMap<>();
         JSONArray wantedIndustries = colony.getJSONArray("industries");
         for (int i = 0; i < wantedIndustries.length(); i++) {
             JSONObject industry = wantedIndustries.getJSONObject(i);
-            industries.put(industry.getString("id"), industry.optBoolean("building"));
+            industries.put(industry.getString("id"), industry);
         }
         for (Industry industry : new ArrayList<>(mirror.getIndustries())) {
             if (!industries.containsKey(industry.getId())) mirror.removeIndustry(industry.getId(), null, false);
         }
-        for (Map.Entry<String, Boolean> industry : industries.entrySet()) {
-            if (mirror.hasIndustry(industry.getKey())) {
-                //construction as in the owner's colony: started there, or finished
-                Industry existing = mirror.getIndustry(industry.getKey());
-                if (industry.getValue() && !existing.isBuilding()) existing.startBuilding();
-                else if (!industry.getValue() && existing.isBuilding()) existing.finishBuildingOrUpgrading();
-                continue;
-            }
+        for (Map.Entry<String, JSONObject> industry : industries.entrySet()) {
             try {
-                mirror.addIndustry(industry.getKey());
-                if (industry.getValue() && mirror.getIndustry(industry.getKey()) != null) {
-                    mirror.getIndustry(industry.getKey()).startBuilding();
-                }
+                if (!mirror.hasIndustry(industry.getKey())) mirror.addIndustry(industry.getKey());
+                Industry mirrored = mirror.getIndustry(industry.getKey());
+                if (mirrored != null) followConstruction(mirrored, industry.getValue());
             } catch (Exception e) {
                 MultiplayerLog.log().warn("Couldn't add industry " + industry.getKey() + " to the mirror of " + mirror.getName() + ": " + e.getMessage());
             }
@@ -265,6 +259,40 @@ public class ColonyMirrors {
         if (inEconomy && !mirror.isInEconomy()) {
             Global.getSector().getEconomy().addMarket(mirror, false);
             MultiplayerLog.log().info(mirror.getName() + " is part of the world's economy");
+        }
+    }
+
+    /**
+     * Construction as in the owner's colony, which is the only authority on it: started or finished there, and as far
+     * along as it is there (within a day). Anything a mirror built on its own (the world's economy runs it, faster
+     * while the host fast-forwards) is put back to the owner's progress; only the owner's game finishes a build.
+     */
+    private static void followConstruction(Industry industry, JSONObject owner) {
+        boolean building = owner.optBoolean("building");
+        if (!building) {
+            if (industry.isBuilding()) industry.finishBuildingOrUpgrading();
+            return;
+        }
+        float days = (float) owner.optDouble("progress", 0);
+        float here = industry.isBuilding() ? industry.getBuildOrUpgradeProgress() * industry.getBuildTime() : -1f;
+        if (industry.isBuilding() && Math.abs(here - days) < 1f) return;
+        industry.startBuilding(); //from the start, then as far as the owner's
+        if (days > 0) industry.advance(Global.getSector().getClock().convertToSeconds(days));
+    }
+
+    /**
+     * The owner's side: the world's clock got ahead of this game (the host fast-forwarded, or this game ran slow),
+     * and this game's clock was just put forward to it; its colonies' construction goes forward as much, as it
+     * would have if this game had run that time.
+     */
+    public static void catchUpConstruction(float days) {
+        if (days <= 0) return;
+        float seconds = Global.getSector().getClock().convertToSeconds(days);
+        for (MarketAPI market : Global.getSector().getEconomy().getMarketsCopy()) {
+            if (!market.isPlayerOwned() || isMirror(market)) continue;
+            for (Industry industry : market.getIndustries()) {
+                if (industry.isBuilding()) industry.advance(seconds);
+            }
         }
     }
 

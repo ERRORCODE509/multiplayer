@@ -308,6 +308,8 @@ public class ClientScripts implements EveryFrameScript {
                         long corrected = ClockUtility.syncToServer(Global.getSector().getClock(), message.getLong("timestamp"));
                         if (corrected != 0) {
                             MultiplayerLog.log().info("Clock set to the server's (it was " + (corrected / 3600000f) + " game hours off)");
+                            //behind the world (it fast-forwarded, or we ran slow): our colonies' construction catches up too
+                            if (corrected > 0) ColonyMirrors.catchUpConstruction(corrected / 86400000f);
                         }
                     }
                     client.ui.setServerTime(message.getLong("timestamp"));
