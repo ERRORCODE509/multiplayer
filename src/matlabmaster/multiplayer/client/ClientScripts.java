@@ -72,6 +72,7 @@ public class ClientScripts implements EveryFrameScript {
         if (client == null || !client.isConnected()) {
             //put back any sector scripts taken out while we were not the authority, so they are not lost
             sectorScriptsUtility.restoreScripts();
+            if (factionSent != null) PlayerFactions.hideAll(); //just disconnected: nobody else is here any more
             factionSent = null;
             return;
         }
@@ -243,8 +244,13 @@ public class ClientScripts implements EveryFrameScript {
                     if (!client.isSelfHosted) PlayerFactions.applyWorldRelations(message.getJSONObject("relations"));
                     break;
                 case "playerFactionLook":
-                    //how another player's faction looks (their own, or unaligned)
-                    if (!client.isSelfHosted) PlayerFactions.applyLook(message.getString("faction"), message.optJSONObject("look"));
+                    //how another player's faction looks (their own, or unaligned), listed in the intel tab while
+                    //they're connected; never our own (here, we're the player)
+                    if (!client.isSelfHosted) {
+                        String faction = message.getString("faction");
+                        PlayerFactions.applyLook(faction, message.optJSONObject("look"));
+                        PlayerFactions.setShown(faction, message.optBoolean("inUse", true) && !faction.equals(client.faction));
+                    }
                     break;
                 case "marketSnapshot":
                     markets.snapshot(message.getJSONObject("snapshot"));

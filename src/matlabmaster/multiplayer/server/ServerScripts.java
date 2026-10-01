@@ -155,6 +155,7 @@ public class ServerScripts implements EveryFrameScript {
         System.getProperties().remove(PLAYER_POSITIONS_KEY); //back to vanilla spawning
         System.getProperties().remove(FULL_RATE_LOCATIONS_KEY); //and to vanilla location updates
         serverInstance.interactions.clear(); //nobody is connected to talk to anyone
+        serverInstance.factionSync.stopped(); //nor in any player faction
         heldAt.clear();
         hideOwnFleet(false);
         //a dedicated server kept copies of the players' fleets: they don't belong in its game

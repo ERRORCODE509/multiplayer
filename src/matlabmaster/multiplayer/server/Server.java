@@ -82,6 +82,11 @@ public class Server {
         return dedicated;
     }
 
+    /** Whether this is the host's own client, which shares this game ("host current game"). */
+    public boolean isLocalClient(String clientId) {
+        return clientId != null && clientId.equals(localClientId);
+    }
+
     /** Called by the host's own client (same game) once it knows its id. */
     public void setLocalClientId(String localClientId) {
         this.localClientId = localClientId;

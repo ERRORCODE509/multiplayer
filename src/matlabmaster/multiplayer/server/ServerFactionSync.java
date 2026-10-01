@@ -42,9 +42,11 @@ public class ServerFactionSync {
         try {
             JSONObject look = message.optJSONObject("look");
             PlayerFactions.applyLook(faction, look);
+            //listed in this game's intel tab while they're connected (not the host's own: in this game that's the player)
+            PlayerFactions.setShown(faction, !server.isLocalClient(clientId));
             looks.put(faction, look);
             if (message.has("reputation")) PlayerFactions.applyReputation(faction, message.getJSONObject("reputation"));
-            server.broadcastExcept(clientId, lookPacket(faction, look).toString());
+            server.broadcastExcept(clientId, lookPacket(faction, look, true).toString());
         } catch (JSONException e) {
             MultiplayerLog.log().error("Couldn't apply " + clientId + "'s faction", e);
         }
@@ -55,6 +57,7 @@ public class ServerFactionSync {
         if (!PlayerFactions.isSlot(faction)) return;
         looks.remove(faction);
         PlayerFactions.applyLook(faction, null);
+        PlayerFactions.setShown(faction, false);
         FactionAPI slot = Global.getSector().getFaction(faction);
         if (slot != null) {
             for (FactionAPI other : Global.getSector().getAllFactions()) {
@@ -62,10 +65,18 @@ public class ServerFactionSync {
             }
         }
         try {
-            server.broadcast(lookPacket(faction, null).toString());
+            server.broadcast(lookPacket(faction, null, false).toString());
         } catch (JSONException e) {
             MultiplayerLog.log().error("Couldn't tell the clients " + faction + " is free", e);
         }
+    }
+
+    /** Hosting stopped: nobody is connected (the players' leaving isn't processed once stopped). */
+    void stopped() {
+        newClients.clear();
+        looks.clear();
+        lastRelations = new JSONObject();
+        PlayerFactions.hideAll();
     }
 
     /** Every frame, from ServerScripts. */
@@ -77,7 +88,7 @@ public class ServerFactionSync {
                     newClients.remove(clientId);
                     server.sendTo(clientId, relationsPacket(all).toString());
                     for (Map.Entry<String, JSONObject> look : looks.entrySet()) {
-                        server.sendTo(clientId, lookPacket(look.getKey(), look.getValue()).toString());
+                        server.sendTo(clientId, lookPacket(look.getKey(), look.getValue(), true).toString());
                     }
                 }
             }
@@ -100,10 +111,12 @@ public class ServerFactionSync {
         return packet;
     }
 
-    private static JSONObject lookPacket(String faction, JSONObject look) throws JSONException {
+    /** How a player faction looks, and whether a connected player is in it (inUse: listed in the intel tab). */
+    private static JSONObject lookPacket(String faction, JSONObject look, boolean inUse) throws JSONException {
         JSONObject packet = new JSONObject();
         packet.put("commandId", "playerFactionLook");
         packet.put("faction", faction);
+        packet.put("inUse", inUse);
         if (look != null) packet.put("look", look);
         return packet;
     }

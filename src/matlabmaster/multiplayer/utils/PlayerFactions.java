@@ -65,6 +65,23 @@ public class PlayerFactions {
     }
 
     /**
+     * Lists a player faction in the intel tab (Factions) while its player is connected, so the other players can
+     * look up their faction and reputation; hidden otherwise, like the spare ones.
+     */
+    public static void setShown(String slotId, boolean shown) {
+        FactionAPI slot = Global.getSector().getFaction(slotId);
+        if (slot != null && slot.isShowInIntelTab() != shown) slot.setShowInIntelTab(shown);
+    }
+
+    /**
+     * Hides every player faction: when a game loads (whether it's shown is saved with the faction, and a save made
+     * while connected would list players who aren't there) and when it stops being connected.
+     */
+    public static void hideAll() {
+        for (int i = 1; i <= SLOT_COUNT; i++) setShown(slotId(i), false);
+    }
+
+    /**
      * This game's player's reputation with every faction (not with the player factions: players are neutral to
      * each other for now), as factionId -> relation (-1..1).
      */
