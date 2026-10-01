@@ -8,6 +8,7 @@ Pushing over HTTPS sometimes drops; retry, or push one commit at a time
 (`for c in $(git rev-list --reverse origin/dev..dev); do git push origin $c:refs/heads/dev || break; done`).
 
 ## Needs testing (latest first)
+- [ ] Docking at your own colony: "Set this colony's tariff" lists rates; picking one changes the tariff (colony screen), the world's copy follows within 5 s, and the menu returns to the main options.
 - [ ] A second client trading at your colony: the monthly report (Income) shows "Tariffs from other players" under it, paid at month end; your log says how much.
 - [ ] Reputation change sound plays while connected (once per change; the saved-up one still plays again on disconnecting).
 - [ ] NPC fleets leave a player alone during a dialog/interception (no swarm afterwards). Commit `255db92`.
@@ -29,7 +30,7 @@ second client (Commerce needed), player names in the join log, factions/reputati
 2. **(Done, needs testing) Reputation sound only played after disconnecting:** vanilla plays it from CoreScript.playRepChangeSoundsIfNeeded (a sector script, off on clients); ClientScripts.sendOwnFaction now plays it on a change. (the change itself applies at once). Not traced yet: vanilla
    `CoreReputationPlugin.addAdjustmentMessage` prints to the dialog text panel; the sound may come with a
    notification queued somewhere the connected client holds up.
-3. **Tariffs.** Done, needs testing: visitors' trades at a player's colony pay the owner the colony's tariff on their base value, as a "Tariffs from other players" line under the colony in the monthly report (ClientMarkets.colonyTrade, MarketSync.tradeValue). Not yet: the host's own colonies ("host current game"), and a tariff adjustable by the
+3. **Tariffs.** Done, needs testing: visitors' trades at a player's colony pay the owner the colony's tariff on their base value, as a "Tariffs from other players" line under the colony in the monthly report (ClientMarkets.colonyTrade, MarketSync.tradeValue). Adjustable: "Set this colony's tariff" at your own colony (rules.csv + rulecmd/MP_Tariff, data/config/settings.json registers the package). Not yet: tariff income for the host's own colonies ("host current game").
    colony's owner.
 4. No jump effect on the host when a client changes location (copies are moved straight there, see
    `FleetSerializer` "location": a hyperspace transition could leave them stuck).

@@ -1,0 +1,6 @@
+{
+	# the multiplayer mod's rule commands (data/campaign/rules.csv)
+	"ruleCommandPackages":[
+		"matlabmaster.multiplayer.rulecmd",
+	],
+}

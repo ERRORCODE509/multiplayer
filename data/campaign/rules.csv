@@ -1,0 +1,8 @@
+id,trigger,conditions,script,text,options,notes
+mp_tariffOption,PopulateOptions,"$hasMarket
+$menuState == main
+$tradeMode != NONE
+$faction.id == player",,,15:mp_tariffMenu:Set this colony's tariff,"multiplayer mod: a player sets their colony's tariff (MP_Tariff)"
+mp_tariffMenu,DialogOptionSelected,$option == mp_tariffMenu,MP_Tariff menu,,,
+mp_tariffSet,DialogOptionSelected,MP_Tariff isOption,"MP_Tariff set
+FireAll PopulateOptions",,,
