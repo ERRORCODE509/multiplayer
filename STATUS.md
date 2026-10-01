@@ -64,6 +64,9 @@ rm -rf "$S" && mkdir -p "$S/mod" && javac --release 17 -nowarn -encoding UTF-8 -
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
+- [ ] Other players' fleets (`64701e8`): seen on a client from anywhere in the same star system (not only within
+      sensor range); gone from the client's game after disconnecting (and from a save made while connected, once
+      loaded: the log says "Removed N other players' fleets saved with this game").
 - [ ] Campaign messages (`3119042`): "Joined the server with ..." on joining, "<name> joined/left the game", and
       "Disconnected from the multiplayer server", in the message log at the bottom left.
 - [ ] Losing your whole fleet while connected (`988f9b6`): if the game makes a new player fleet, the log says "Our
