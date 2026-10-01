@@ -36,8 +36,11 @@ public class FleetSerializer {
             String key = (String) keys.next();
             Object delta = diff.get(key);
 
+            if (key.equals("flags") && delta instanceof JSONObject) {
+                patchFlags(fleet, (JSONObject) delta);
+            }
             // Handle root fleet properties (UPDATE instructions)
-            if (delta instanceof JSONObject && ((JSONObject) delta).has("action")) {
+            else if (delta instanceof JSONObject && ((JSONObject) delta).has("action")) {
                 applyRootProperty(fleet, key, (JSONObject) delta);
             }
             // Handle nested maps (ships, cargo, abilities, persons)
@@ -58,6 +61,21 @@ public class FleetSerializer {
         if (now != leftFrom && now != null) {
             if (leftFrom != null) jumpFlash(fleet, leftFrom, leftAt);
             jumpFlash(fleet, now, fleet.getLocation());
+        }
+    }
+
+    /** Its memory flags (FleetFlags): all of them at once, or the ones that changed. */
+    private static void patchFlags(CampaignFleetAPI fleet, JSONObject delta) throws JSONException {
+        if (delta.has("action")) {
+            Object value = delta.opt("value");
+            FleetFlags.apply(fleet, value instanceof JSONObject ? (JSONObject) value : new JSONObject());
+            return;
+        }
+        for (Iterator<?> it = delta.keys(); it.hasNext(); ) {
+            String flag = (String) it.next();
+            JSONObject instruction = delta.optJSONObject(flag);
+            if (instruction == null) continue;
+            FleetFlags.set(fleet.getMemoryWithoutUpdate(), flag, !"REMOVED".equals(instruction.optString("action")) && instruction.optBoolean("value"));
         }
     }
 
@@ -322,6 +340,8 @@ public class FleetSerializer {
         serializedFleet.put("isTransponderOn", fleet.isTransponderOn());
         serializedFleet.put("aiMode",fleet.isAIMode());
         serializedFleet.put("name",fleet.getName());
+        //who an NPC fleet was made hostile to (a raid: the colony's owner), for the copies' AI (players' fleets have none)
+        if (!fleet.isPlayerFleet() && !fleet.hasTag("playerFleet")) serializedFleet.put("flags", FleetFlags.describe(fleet));
 
         // MAPS instead of ARRAYS
         serializedFleet.put("abilities", serializeAbilities(fleet.getAbilities()));
@@ -387,6 +407,7 @@ public class FleetSerializer {
         fleet.getVelocity().set((float) serializedFleet.optDouble("velocityX", 0), (float) serializedFleet.optDouble("velocityY", 0));
 
         fleet.setTransponderOn(serializedFleet.getBoolean("isTransponderOn"));
+        if (serializedFleet.has("flags")) FleetFlags.apply(fleet, serializedFleet.getJSONObject("flags"));
 
         // Unserialize mapped structures
         unSerializeAbilities(serializedFleet.getJSONObject("abilities"), fleet);

@@ -31,7 +31,7 @@ import org.lwjgl.util.vector.Vector2f;
 
 public class Server {
     /** Bump whenever client and server messages change in a way an older version can't handle; checked on join. */
-    public static final int PROTOCOL_VERSION = 6; //2: the server's game is the only authority. 3: player factions, markets. 4: hello (player ids), colonies. 5: trade at colonies. 6: the world's debris on joining
+    public static final int PROTOCOL_VERSION = 7; //2: the server's game is the only authority. 3: player factions, markets. 4: hello (player ids), colonies. 5: trade at colonies. 6: the world's debris on joining. 7: the world runs raids on players' colonies
 
     private int port;
     private ServerSocket serverSocket;
@@ -113,6 +113,8 @@ public class Server {
     public final ServerFactionSync factionSync = new ServerFactionSync(this);
     /** The world's battle debris fields, shared with the players (game thread). */
     public final ServerDebris debris = new ServerDebris(this);
+    /** The raids on players' colonies the world runs for them, and what it does to their colonies (game thread). */
+    public final ServerRaids raids = new ServerRaids(this);
     /** Connected players this game has no copy of the fleet of (game thread only), so it's only logged once. */
     private final Set<String> missingPlayerFleets = new HashSet<>();
     /** The host's game version, seed and mods, sent in every welcome so joiners can check they match. */
@@ -399,6 +401,19 @@ public class Server {
                         }
                     });
                     break;
+                case "raidHandOver":
+                    //a raid on the player's colony their game made (their crisis): the world runs it, see RaidSync
+                    gameThreadTasks.add(() -> {
+                        try {
+                            raids.handOver(clientId, json.getJSONObject("raid"));
+                        } catch (Exception e) {
+                            MultiplayerLog.log().error("Failed to take over a raid from " + who(clientId), e);
+                        }
+                    });
+                    break;
+                case "raidCallOff":
+                    gameThreadTasks.add(() -> raids.callOff(clientId, json.optString("id")));
+                    break;
                 case "colonyStock":
                     //a player's colony's stock, from their game (it holds the real one)
                     JSONObject snapshot = json.getJSONObject("snapshot");
@@ -458,6 +473,7 @@ public class Server {
         joined.put("name", name);
         broadcastExcept(clientId, joined.toString());
         markets.deliverQueuedTrades(clientId, playerId); //visitors' trades at their colonies while they were away
+        raids.joined(clientId, playerId); //how the world's raids on their colonies went while they were away
     }
 
     /** Who's connected, in this game's multiplayer window (null once it stops hosting). */

@@ -42,6 +42,8 @@ public class ClientScripts implements EveryFrameScript {
     private final ClientMarkets markets = new ClientMarkets();
     /** Keeps our fleet by what we're talking to while the world moves on (see InteractionOrbit). */
     private final InteractionOrbit interactionOrbit = new InteractionOrbit();
+    /** The raids on our colonies, which the world runs (see RaidSync). */
+    private final OwnRaids ownRaids = new OwnRaids();
     /** Our reputation and faction as last sent to the server (null: not since joining), see sendOwnFaction. */
     private String factionSent = null;
     /** The battle debris fields the server knows of (ours sent, or others' received), see syncDebris. */
@@ -111,6 +113,8 @@ public class ClientScripts implements EveryFrameScript {
             coloniesSent = null;
             debrisKnown.clear();
             CopyAI.removeAll();
+            FleetFlags.ownFaction = null;
+            ownRaids.reset();
             if (client != null && client.wasPaused) { //left in a dialog: never told the server, nobody to tell now
                 client.wasPaused = false;
                 PauseUtility.clearPausedName();
@@ -129,6 +133,7 @@ public class ClientScripts implements EveryFrameScript {
             coloniesSent = null;
             debrisKnown.clear();
             CopyAI.removeAll();
+            ownRaids.reset();
         }
         factionTimer += amount;
         if (factionSent == null || factionTimer >= PlayerFactions.RELATIONS_INTERVAL) {
@@ -145,6 +150,8 @@ public class ClientScripts implements EveryFrameScript {
             coloniesTimer = 0f;
             sendOwnColonies();
         }
+        //our crises' raids go to the world (the host's game is the world: they're there already)
+        if (!client.isSelfHosted) ownRaids.advance(amount, client);
 
         //handle the game pausing , disable classic in game pause
         //if the game is in a dialog inform the server
@@ -193,6 +200,7 @@ public class ClientScripts implements EveryFrameScript {
     public void onGameLoad() {
         sectorScriptsUtility.forgetScripts();
         interactionOrbit.forget();
+        ownRaids.reset();
         PauseUtility.clearPausedName(); //a save from before this was fixed may have it
         PositionSmoothing.clear();
         //a save made during a session has the other players' fleets as they were then; they come back on joining
@@ -312,6 +320,12 @@ public class ClientScripts implements EveryFrameScript {
                     MultiplayerLog.log().info("The world has " + ids.size() + " battle debris fields" + (removed > 0 ? "; removed " + removed + " gone since we were last here" : ""));
                     break;
                 }
+                case "colonyHit":
+                case "raidAction":
+                case "raidEnded":
+                    //the world's raids on our colonies: what they did, how they're going, how they ended
+                    if (!client.isSelfHosted) OwnRaids.received(message);
+                    break;
                 case "debrisGone":
                     debrisKnown.remove(message.getString("id"));
                     if (!client.isSelfHosted) DebrisSync.remove(message.getString("id"));
@@ -398,6 +412,7 @@ public class ClientScripts implements EveryFrameScript {
                 case "yourFaction":
                     //our faction in the other games, from the server's reply to our hello
                     client.faction = message.getString("faction");
+                    if (!client.isSelfHosted) FleetFlags.ownFaction = client.faction; //the world's fleets made hostile to it are hostile to us
                     break;
                 case "playerColonies":
                     //another player's colonies (they run in their game): mirrored here. The host's game is the world:

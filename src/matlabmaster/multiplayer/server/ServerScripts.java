@@ -111,6 +111,7 @@ public class ServerScripts implements EveryFrameScript {
         serverInstance.factionSync.advance(amount);
         serverInstance.markets.advance(amount);
         serverInstance.debris.advance(amount);
+        serverInstance.raids.advance(amount);
 
         boolean paused = Global.getSector().isPaused();
         if (serverInstance.isDedicated()) {
@@ -181,6 +182,7 @@ public class ServerScripts implements EveryFrameScript {
         serverInstance.interactions.clear(); //nobody is connected to talk to anyone
         serverInstance.factionSync.stopped(); //nor in any player faction
         serverInstance.debris.stopped();
+        serverInstance.raids.stopped();
         heldAt.clear();
         orbiting.clear(); //the players' fleets themselves are removed just below
         pinnedAt.clear();

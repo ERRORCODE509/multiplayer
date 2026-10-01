@@ -20,8 +20,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * Stored as a plain String -> String map, so the save never depends on the mod's classes:
  * "faction:<playerId>" -> mp_player_N, "name:<playerId>" -> their name, "look:<mp_player_N>" -> look JSON,
  * "colonies:<playerId>" -> colonies JSON, "trades:<playerId>" -> visitors' trades at their colonies while they were
- * offline (JSON array, see ServerMarkets). A ConcurrentHashMap: the network threads reserve factions while the
- * game thread may be saving it.
+ * offline (JSON array, see ServerMarkets), "raids:<playerId>" -> news of the world's raids on their colonies
+ * (ServerRaids), "raidOver:<raid id>" -> how a raid ended (ServerRaids). A ConcurrentHashMap: the network threads
+ * reserve factions while the game thread may be saving it.
  */
 public class PlayerRegistry {
     private static final String KEY = "multiplayer_players";
@@ -111,27 +112,49 @@ public class PlayerRegistry {
     }
 
     /** A visitor's trade at a player's colony while they were offline, for their game when they're back. */
-    public synchronized void queueTrade(String playerId, JSONObject trade) {
-        JSONArray trades = queuedTrades(playerId);
-        trades.put(trade);
-        data.put("trades:" + playerId, trades.toString());
+    public void queueTrade(String playerId, JSONObject trade) {
+        queue("trades", playerId, trade);
     }
 
     /** The trades queued for a player (MarketSync trades), now theirs: removed from the queue. */
-    public synchronized JSONArray takeTrades(String playerId) {
-        JSONArray trades = queuedTrades(playerId);
-        data.remove("trades:" + playerId);
-        return trades;
+    public JSONArray takeTrades(String playerId) {
+        return take("trades", playerId);
     }
 
-    private JSONArray queuedTrades(String playerId) {
-        String trades = data.get("trades:" + playerId);
-        if (trades == null) return new JSONArray();
+    /**
+     * Something for a player's game while they're offline (kind: "trades", "raids"...), kept until they're back:
+     * "<kind>:<playerId>" -> JSON array.
+     */
+    public synchronized void queue(String kind, String playerId, JSONObject item) {
+        JSONArray items = queued(kind, playerId);
+        items.put(item);
+        data.put(kind + ":" + playerId, items.toString());
+    }
+
+    /** What was queued for a player, now theirs: removed from the queue. */
+    public synchronized JSONArray take(String kind, String playerId) {
+        JSONArray items = queued(kind, playerId);
+        data.remove(kind + ":" + playerId);
+        return items;
+    }
+
+    private JSONArray queued(String kind, String playerId) {
+        String items = data.get(kind + ":" + playerId);
+        if (items == null) return new JSONArray();
         try {
-            return new JSONArray(trades);
+            return new JSONArray(items);
         } catch (JSONException e) {
             return new JSONArray();
         }
+    }
+
+    /** A plain value of this world's (e.g. "raidOver:<raid id>"), kept in its save; null if there's none. */
+    public String get(String key) {
+        return data.get(key);
+    }
+
+    public void put(String key, String value) {
+        data.put(key, value);
     }
 
     /** Every player who has described colonies. */

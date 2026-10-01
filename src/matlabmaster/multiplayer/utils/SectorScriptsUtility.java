@@ -4,6 +4,7 @@ import com.fs.starfarer.api.EveryFrameScript;
 import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.impl.campaign.intel.events.BaseEventIntel;
 import matlabmaster.multiplayer.client.ClientScripts;
+import matlabmaster.multiplayer.client.OwnRaids;
 import matlabmaster.multiplayer.server.ServerScripts;
 
 import java.util.ArrayList;
@@ -23,6 +24,11 @@ public class SectorScriptsUtility {
             if (script instanceof ClientScripts || script instanceof ServerScripts) continue; //never remove our own scripts
             if (isGameMechanic(script)) continue;
             if (isPlayerEvent(script)) continue;
+            if (OwnRaids.isFrozen(script)) { //the world runs it: never put back, see OwnRaids
+                savedScripts.remove(script);
+                Global.getSector().removeScript(script);
+                continue;
+            }
             if (!savedScripts.contains(script)) {
                 savedScripts.add(script); //also catches scripts added since the last call
             }
@@ -43,7 +49,8 @@ public class SectorScriptsUtility {
      * The player's own events (vanilla's event progress bars: colony crises, hyperspace topography, ...): they're
      * about this game's player and their colonies, which this game is the authority on, so they run while connected
      * too, and a colony's crises happen while its owner plays (never to its mirror in the world, which isn't the
-     * "player" faction's). Their raids' fleets move through RouteManager, which stays off here, so those wait.
+     * "player" faction's). Their raids are handed over to the world, which runs them (OwnRaids); blockades wait
+     * (their fleets move through RouteManager, which stays off here).
      */
     private static boolean isPlayerEvent(EveryFrameScript script) {
         return script instanceof BaseEventIntel;
@@ -53,6 +60,7 @@ public class SectorScriptsUtility {
         if (savedScripts.isEmpty()) return;
         List<EveryFrameScript> current = Global.getSector().getScripts();
         for (EveryFrameScript script : savedScripts) {
+            if (OwnRaids.isFrozen(script)) continue; //handed over to the world since it was taken out
             if (!current.contains(script)) {
                 Global.getSector().addScript(script);
             }
