@@ -102,6 +102,8 @@ public class ClientScripts implements EveryFrameScript {
             sectorScriptsUtility.restoreScripts();
             if (factionSent != null) { //just disconnected: nobody else is here any more
                 PlayerFactions.hideAll();
+                int copies = FleetHelper.removePlayerCopies();
+                if (copies > 0) MultiplayerLog.log().info("Removed the other players' fleets (" + copies + ")");
                 notify("Disconnected from the multiplayer server");
             }
             factionSent = null;
@@ -134,6 +136,7 @@ public class ClientScripts implements EveryFrameScript {
             if (!client.isSelfHosted) {
                 markHostiles();
                 syncDebris();
+                showOtherPlayers();
             }
         }
         coloniesTimer += amount;
@@ -191,6 +194,9 @@ public class ClientScripts implements EveryFrameScript {
         interactionOrbit.forget();
         PauseUtility.clearPausedName(); //a save from before this was fixed may have it
         PositionSmoothing.clear();
+        //a save made during a session has the other players' fleets as they were then; they come back on joining
+        int copies = FleetHelper.removePlayerCopies();
+        if (copies > 0) MultiplayerLog.log().info("Removed " + copies + " other players' fleets saved with this game");
         //our battles against the world's NPC fleets: the server's must lose the same ships (transient: not in the save)
         Global.getSector().addTransientListener(new BaseCampaignEventListener(false) {
             @Override
@@ -559,6 +565,22 @@ public class ClientScripts implements EveryFrameScript {
         //the AI's tactical module decides (a memory flag isn't asked): theirs is wrapped, see HostileAwareTactics
         HostileAwareTactics.wrapAround(Global.getSector().getPlayerFleet());
     }
+
+    /**
+     * The other players' fleets are seen from anywhere in the same location: there's no fighting them (see
+     * PlayerEncounters), and players play together. Only in a client's game, where the NPC fleets don't think for
+     * themselves; in the server's game they'd see them from everywhere too. Gone with the copies on leaving.
+     */
+    private void showOtherPlayers() {
+        CampaignFleetAPI own = Global.getSector().getPlayerFleet();
+        if (own == null || own.getContainingLocation() == null) return;
+        for (CampaignFleetAPI fleet : own.getContainingLocation().getFleets()) {
+            if (!fleet.hasTag("playerFleet") || fleet.isPlayerFleet()) continue;
+            fleet.getStats().getDetectedRangeMod().modifyFlat(SEEN_ID, 100000f, "Another player");
+        }
+    }
+
+    private static final String SEEN_ID = "multiplayer_other_player";
 
     /**
      * Our colonies (they run in this game, the only authority on them), to the server, which mirrors them in the

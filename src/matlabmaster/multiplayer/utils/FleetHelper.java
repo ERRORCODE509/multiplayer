@@ -79,6 +79,23 @@ public class FleetHelper {
     }
 
 
+    /**
+     * Removes every copy of another player's fleet from this game (they belong to a session: on leaving it, and on
+     * loading a save made during one, they'd only be frozen fleets nobody moves). Returns how many.
+     */
+    public static int removePlayerCopies() {
+        List<CampaignFleetAPI> copies = new ArrayList<>();
+        for (LocationAPI location : Global.getSector().getAllLocations()) {
+            for (CampaignFleetAPI fleet : location.getFleets()) {
+                if (fleet.hasTag("playerFleet") && !fleet.isPlayerFleet()) copies.add(fleet);
+            }
+        }
+        for (CampaignFleetAPI fleet : copies) {
+            fleet.getContainingLocation().removeEntity(fleet);
+        }
+        return copies.size();
+    }
+
     public static void removeFleetById(String id){
         SectorEntityToken entity = Global.getSector().getEntityById(id);
         //unknown id (never received, or already gone): nothing to remove, and never our own fleet

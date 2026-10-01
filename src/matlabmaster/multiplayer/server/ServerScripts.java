@@ -14,6 +14,7 @@ import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.MultiplayerModPlugin;
 import matlabmaster.multiplayer.updates.FleetSync;
 import matlabmaster.multiplayer.utils.ClockUtility;
+import matlabmaster.multiplayer.utils.FleetHelper;
 import org.json.JSONObject;
 import org.lwjgl.util.vector.Vector2f;
 
@@ -186,17 +187,9 @@ public class ServerScripts implements EveryFrameScript {
         intercepts.clear();
         interceptedAt.clear();
         hideOwnFleet(false);
-        //a dedicated server kept copies of the players' fleets: they don't belong in its game
-        List<CampaignFleetAPI> copies = new ArrayList<>();
-        for (LocationAPI location : Global.getSector().getAllLocations()) {
-            for (CampaignFleetAPI fleet : location.getFleets()) {
-                if (fleet.hasTag("playerFleet") && !fleet.isPlayerFleet()) copies.add(fleet);
-            }
-        }
-        for (CampaignFleetAPI fleet : copies) {
-            fleet.getContainingLocation().removeEntity(fleet);
-        }
-        if (!copies.isEmpty()) MultiplayerLog.log().info("Removed " + copies.size() + " player fleet copies from the server's game");
+        //this game kept copies of the players' fleets: they don't belong in it
+        int copies = FleetHelper.removePlayerCopies();
+        if (copies > 0) MultiplayerLog.log().info("Removed " + copies + " player fleet copies from the server's game");
     }
 
     /**
