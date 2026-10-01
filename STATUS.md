@@ -64,6 +64,8 @@ rm -rf "$S" && mkdir -p "$S/mod" && javac --release 17 -nowarn -encoding UTF-8 -
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
+- [ ] Players list (`4866ae0`): the multiplayer window's right side lists who's connected, on the server instance
+      and on each client (own name "(you)"), updated as players join, leave and rename.
 - [ ] No PvP (`7c8341b`): flying into another player's fleet opens "comes alongside ..., another player's" with only
       Leave (both fleets shown), on a client and on the host ("host current game"); fighting an NPC fleet next to
       another player doesn't pull them in ("supporting your forces" / "joining the enemy" never names a player).
