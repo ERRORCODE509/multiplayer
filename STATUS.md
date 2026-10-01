@@ -119,9 +119,9 @@ Not tested yet: campaign messages, losing the whole fleet, debris.
       server's out of its sensor range. A client's fleet and its copy on the server: 21-29 units apart at 230 units/s
       (the copy ~0.1 s ahead, inside the dead band). (`82c4d6c` went out under the wrong message, "STATUS.md: fleet
       copy fixes to test".)
-- [ ] Other players' fleets (`64701e8`): seen on a client from anywhere in the same star system (not only within
-      sensor range); gone from the client's game after disconnecting (and from a save made while connected, once
-      loaded: the log says "Removed N other players' fleets saved with this game").
+- [ ] Other players' fleets (`64701e8`): gone from the client's game after disconnecting (and from a save made while
+      connected, once loaded: the log says "Removed N other players' fleets saved with this game"). (Seen by normal
+      detection: see A above.)
 - [ ] Campaign messages (`3119042`): "Joined the server with ..." on joining, "<name> joined/left the game", and
       "Disconnected from the multiplayer server", in the message log at the bottom left.
 - [ ] Losing your whole fleet while connected (`988f9b6`): if the game makes a new player fleet, the log says "Our
