@@ -446,8 +446,10 @@ public class FleetSerializer {
 
     public static JSONObject serializeFleetShips(FleetDataAPI fleetData) throws JSONException {
         JSONObject shipsMap = new JSONObject();
+        int order = 0;
         for (FleetMemberAPI ship : fleetData.getMembersListCopy()) {
             JSONObject shipSerialized = new JSONObject();
+            shipSerialized.put("order", order++); //the map below has no order: a copy lists its ships as the fleet does
 
             String hullId = ship.getHullSpec().getHullId();
             if (hullId.contains("_default_")) {
@@ -564,9 +566,11 @@ public class FleetSerializer {
     }
 
     public static void unSerializeFleetMembers(JSONObject shipsMap, CampaignFleetAPI fleet) throws JSONException {
-        Iterator<?> keys = shipsMap.keys();
-        while (keys.hasNext()) {
-            String shipId = (String) keys.next();
+        //in the fleet's own order (its ships are a map here; "order" is missing from older versions' fleets)
+        List<String> ids = new ArrayList<>();
+        for (Iterator<?> keys = shipsMap.keys(); keys.hasNext(); ) ids.add((String) keys.next());
+        ids.sort(Comparator.comparingInt(id -> shipsMap.optJSONObject(id) == null ? 0 : shipsMap.optJSONObject(id).optInt("order", 0)));
+        for (String shipId : ids) {
             JSONObject shipObject = shipsMap.getJSONObject(shipId);
             FleetMemberAPI member = unSerializeFleetMember(shipObject);
             member.setId(shipId);
