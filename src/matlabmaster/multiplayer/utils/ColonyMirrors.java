@@ -225,7 +225,9 @@ public class ColonyMirrors {
             for (Map.Entry<String, String> submarket : submarkets.entrySet()) {
                 try {
                     if (!mirror.hasSubmarket(submarket.getKey())) mirror.addSubmarket(submarket.getKey());
-                    FactionAPI owner = submarket.getValue() == null ? null : Global.getSector().getFaction(submarket.getValue());
+                    //the colony's owner's: trading there is with them (in their game it's the independents', and the
+                    //reputation for trading went to those)
+                    FactionAPI owner = Global.getSector().getFaction(faction);
                     if (owner != null) mirror.getSubmarket(submarket.getKey()).setFaction(owner);
                 } catch (Exception e) {
                     MultiplayerLog.log().warn("Couldn't add submarket " + submarket.getKey() + " to the mirror of " + mirror.getName() + ": " + e.getMessage());

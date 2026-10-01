@@ -96,7 +96,8 @@ public class ServerMarkets {
                 MultiplayerLog.log().info(server.who(clientId) + " traded at " + market.getName() + (hostColony ? " (" + (int) tariff + " credits in tariffs to the host)" : ""));
                 return;
             }
-            MarketSync.applyTrade(mirror, trade);
+            //the host ("host current game") traded at this very copy: it has the trade already
+            if (!server.isLocalClient(clientId)) MarketSync.applyTrade(mirror, trade);
             String ownerId = ColonyMirrors.ownerOf(mirror);
             String owner = server.clientOf(ownerId);
             if (owner != null) {

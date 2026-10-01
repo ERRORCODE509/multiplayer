@@ -5,6 +5,7 @@ import com.fs.starfarer.api.campaign.SectorEntityToken;
 import com.fs.starfarer.api.campaign.econ.MarketAPI;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.updates.MarketSync;
+import matlabmaster.multiplayer.utils.ColonyMirrors;
 import org.json.JSONObject;
 
 /**
@@ -69,14 +70,32 @@ public class ClientMarkets {
         open = null;
         before = null;
         ownOpen = null;
-        if (client.isSelfHosted || target == null) return; //the host's game is the world: its markets are the real ones
+        if (target == null) return;
         MarketAPI market = target.getMarket();
+        if (client.isSelfHosted) {
+            //the host's game is the world: its markets are the real ones, except another player's colony, whose owner's
+            //game holds the real stock: the host trades there as any visitor (its stock from the owner, its trades to
+            //them), only the world's copy already has them (see ServerMarkets.trade)
+            if (!ColonyMirrors.isMirror(market) || !MarketSync.hasShared(market)) return;
+            open = market;
+            try {
+                before = MarketSync.snapshot(market, false);
+            } catch (Exception e) {
+                before = null;
+            }
+            request(client, market);
+            return;
+        }
         if (market != null && market.isPlayerOwned() && MarketSync.hasTradable(market)) {
             ownOpen = market; //our own colony: its stock is ours, the server gets it when we leave
             return;
         }
         if (!MarketSync.hasShared(market)) return;
         open = market;
+        request(client, market);
+    }
+
+    private void request(Client client, MarketAPI market) {
         try {
             JSONObject packet = new JSONObject();
             packet.put("commandId", "requestMarket");
