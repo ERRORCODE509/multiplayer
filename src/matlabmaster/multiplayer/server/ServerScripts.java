@@ -109,6 +109,7 @@ public class ServerScripts implements EveryFrameScript {
         checkInterceptions(amount);
         serverInstance.factionSync.advance(amount);
         serverInstance.markets.advance(amount);
+        serverInstance.debris.advance(amount);
 
         boolean paused = Global.getSector().isPaused();
         if (serverInstance.isDedicated()) {
@@ -178,6 +179,7 @@ public class ServerScripts implements EveryFrameScript {
         System.getProperties().remove(FULL_RATE_LOCATIONS_KEY); //and to vanilla location updates
         serverInstance.interactions.clear(); //nobody is connected to talk to anyone
         serverInstance.factionSync.stopped(); //nor in any player faction
+        serverInstance.debris.stopped();
         heldAt.clear();
         orbiting.clear(); //the players' fleets themselves are removed just below
         pinnedAt.clear();

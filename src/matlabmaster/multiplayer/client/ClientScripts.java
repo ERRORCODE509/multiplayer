@@ -254,6 +254,19 @@ public class ClientScripts implements EveryFrameScript {
                     }
                     break;
                 }
+                case "debrisAll": {
+                    //every battle debris field in the world, on joining: the ones made while we were away come, and
+                    //any we got from a server before that the world doesn't have any more go
+                    if (client.isSelfHosted) break; //our game is the world
+                    JSONObject fields = message.getJSONObject("fields");
+                    Set<String> ids = new HashSet<>();
+                    for (Iterator<?> it = fields.keys(); it.hasNext(); ) ids.add((String) it.next());
+                    int removed = DebrisSync.removeReceivedExcept(ids);
+                    for (String id : ids) DebrisSync.apply(id, fields.getJSONObject(id));
+                    debrisKnown.addAll(ids);
+                    MultiplayerLog.log().info("The world has " + ids.size() + " battle debris fields" + (removed > 0 ? "; removed " + removed + " gone since we were last here" : ""));
+                    break;
+                }
                 case "debrisGone":
                     debrisKnown.remove(message.getString("id"));
                     if (!client.isSelfHosted) DebrisSync.remove(message.getString("id"));
@@ -452,14 +465,14 @@ public class ClientScripts implements EveryFrameScript {
     }
 
     /**
-     * Battle debris fields (see DebrisSync): any new one around us (our battles leave them here) goes to the server,
-     * and any we know of that's gone here (we salvaged it, or it ran out) goes everywhere.
+     * Battle debris fields (see DebrisSync): any new one around us that our battles left goes to the server, and
+     * any we know of that's gone here (we salvaged it, or it ran out) goes everywhere.
      */
     private void syncDebris() {
         try {
             CampaignFleetAPI own = Global.getSector().getPlayerFleet();
             if (own == null || own.getContainingLocation() == null) return;
-            JSONObject fields = DebrisSync.battleFields(own.getContainingLocation());
+            JSONObject fields = DebrisSync.battleFields(own.getContainingLocation(), true);
             JSONObject fresh = new JSONObject();
             for (Iterator<?> it = fields.keys(); it.hasNext(); ) {
                 String id = (String) it.next();
@@ -470,6 +483,7 @@ public class ClientScripts implements EveryFrameScript {
                 packet.put("commandId", "debrisFields");
                 packet.put("fields", fresh);
                 client.send(packet.toString());
+                for (Iterator<?> it = fresh.keys(); it.hasNext(); ) DebrisSync.shared((String) it.next());
             }
             for (Iterator<String> it = debrisKnown.iterator(); it.hasNext(); ) {
                 String id = it.next();

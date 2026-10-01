@@ -10,7 +10,6 @@ import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.econ.MarketAPI;
 import com.fs.starfarer.api.impl.campaign.ids.Factions;
 import matlabmaster.multiplayer.updates.BattleSync;
-import matlabmaster.multiplayer.updates.DebrisSync;
 import matlabmaster.multiplayer.updates.MarketSync;
 import matlabmaster.multiplayer.utils.PlayerFactions;
 import matlabmaster.multiplayer.MultiplayerLog;
@@ -30,7 +29,7 @@ import org.lwjgl.util.vector.Vector2f;
 
 public class Server {
     /** Bump whenever client and server messages change in a way an older version can't handle; checked on join. */
-    public static final int PROTOCOL_VERSION = 5; //2: the server's game is the only authority. 3: player factions, markets. 4: hello (player ids), colonies. 5: trade at colonies
+    public static final int PROTOCOL_VERSION = 6; //2: the server's game is the only authority. 3: player factions, markets. 4: hello (player ids), colonies. 5: trade at colonies. 6: the world's debris on joining
 
     private int port;
     private ServerSocket serverSocket;
@@ -109,6 +108,8 @@ public class Server {
     public final ServerMarkets markets = new ServerMarkets(this);
     /** Sends the world's faction relations and the players' factions to the clients (game thread). */
     public final ServerFactionSync factionSync = new ServerFactionSync(this);
+    /** The world's battle debris fields, shared with the players (game thread). */
+    public final ServerDebris debris = new ServerDebris(this);
     /** Connected players this game has no copy of the fleet of (game thread only), so it's only logged once. */
     private final Set<String> missingPlayerFleets = new HashSet<>();
     /** The host's game version, seed and mods, sent in every welcome so joiners can check they match. */
@@ -376,16 +377,7 @@ public class Server {
                     //the debris a player's battle left, or a field gone in their game: the world and everyone else too
                     gameThreadTasks.add(() -> {
                         try {
-                            if ("debrisGone".equals(commandId)) {
-                                DebrisSync.remove(json.getString("id"));
-                            } else {
-                                JSONObject fields = json.getJSONObject("fields");
-                                for (Iterator<?> it = fields.keys(); it.hasNext(); ) {
-                                    String id = (String) it.next();
-                                    DebrisSync.apply(id, fields.getJSONObject(id));
-                                }
-                            }
-                            broadcastExcept(clientId, json.toString());
+                            debris.received(clientId, json);
                         } catch (Exception e) {
                             MultiplayerLog.log().error("Failed to apply the debris of " + who(clientId), e);
                         }
@@ -441,6 +433,7 @@ public class Server {
         }
         clientFactions.put(clientId, faction);
         factionSync.joined(clientId);
+        debris.joined(clientId);
         JSONObject reply = new JSONObject();
         reply.put("commandId", "yourFaction");
         reply.put("faction", faction);
