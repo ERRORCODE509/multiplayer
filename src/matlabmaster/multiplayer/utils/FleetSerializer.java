@@ -29,6 +29,8 @@ public class FleetSerializer {
     public static void applyFleetDiff(CampaignFleetAPI fleet, JSONObject diff) throws JSONException {
         LocationAPI leftFrom = fleet.getContainingLocation();
         org.lwjgl.util.vector.Vector2f leftAt = new org.lwjgl.util.vector.Vector2f(fleet.getLocation());
+        //the position is applied once, after the rest (see below): x and y together, and after any location change
+        float toX = updated(diff, "locationX"), toY = updated(diff, "locationY");
         Iterator<?> keys = diff.keys();
         while (keys.hasNext()) {
             String key = (String) keys.next();
@@ -43,15 +45,30 @@ public class FleetSerializer {
                 applyNestedPatch(fleet, key, (JSONObject) delta);
             }
         }
+        //where its game has it: in another location it's put there, otherwise the copy is eased towards it, both
+        //axes as one (see PositionSmoothing)
+        LocationAPI now = fleet.getContainingLocation();
+        if (!Float.isNaN(toX) || !Float.isNaN(toY)) {
+            float x = Float.isNaN(toX) ? fleet.getLocation().x : toX, y = Float.isNaN(toY) ? fleet.getLocation().y : toY;
+            if (now != leftFrom) fleet.setLocation(x, y);
+            else PositionSmoothing.toward(fleet, x, y);
+        }
         //a flash where it left and where it arrived, in place of the jump's own (no transition here, see "location").
         //After the whole diff: its keys come in no particular order, and the new position is in it
-        LocationAPI now = fleet.getContainingLocation();
         if (now != leftFrom && now != null) {
             java.awt.Color jump = new java.awt.Color(120, 190, 255, 255);
             float size = Math.max(100f, fleet.getRadius() * 4f);
             if (leftFrom != null) leftFrom.addHitParticle(leftAt, new org.lwjgl.util.vector.Vector2f(), size, 1f, 1f, jump);
             now.addHitParticle(new org.lwjgl.util.vector.Vector2f(fleet.getLocation()), new org.lwjgl.util.vector.Vector2f(), size, 1f, 1f, jump);
         }
+    }
+
+    /** A root property's new value in a diff (UPDATE), or NaN. Number: Integer or Double. */
+    private static float updated(JSONObject diff, String key) throws JSONException {
+        JSONObject instruction = diff.optJSONObject(key);
+        if (instruction == null || !"UPDATE".equals(instruction.optString("action"))) return Float.NaN;
+        Object value = instruction.opt("value");
+        return value instanceof Number ? ((Number) value).floatValue() : Float.NaN;
     }
 
     private static void applyRootProperty(CampaignFleetAPI fleet, String key, JSONObject instruction) throws JSONException {
@@ -61,11 +78,14 @@ public class FleetSerializer {
         Object value = instruction.get("value");
         switch (key) {
             case "locationX":
-                //made up gradually when it's drifted off (see PositionSmoothing); Number: Integer or Double
-                PositionSmoothing.toward(fleet, ((Number) value).floatValue(), Float.NaN);
-                break;
             case "locationY":
-                PositionSmoothing.toward(fleet, Float.NaN, ((Number) value).floatValue());
+                break; //after the rest of the diff, see applyFleetDiff
+            case "velocityX":
+                //it flies as its game's does: its own engine only steers it from there towards its destination
+                fleet.getVelocity().set(((Number) value).floatValue(), fleet.getVelocity().y);
+                break;
+            case "velocityY":
+                fleet.getVelocity().set(fleet.getVelocity().x, ((Number) value).floatValue());
                 break;
             case "location":
                 LocationAPI area;
@@ -266,7 +286,7 @@ public class FleetSerializer {
     }
 
     /** The fields of a serialized fleet that change as it moves; FleetSync sends these every tick, the rest less often. */
-    public static final String[] MOVEMENT_KEYS = {"locationX", "locationY", "location", "moveDestinationX", "moveDestinationY"};
+    public static final String[] MOVEMENT_KEYS = {"locationX", "locationY", "location", "moveDestinationX", "moveDestinationY", "velocityX", "velocityY"};
 
     /** Just the movement fields (MOVEMENT_KEYS), exactly as serializeFleet writes them. */
     public static JSONObject serializeFleetMovement(CampaignFleetAPI fleet) throws JSONException {
@@ -276,6 +296,9 @@ public class FleetSerializer {
         movement.put("location", fleet.getContainingLocation().getId());
         movement.put("moveDestinationX", ((int)(fleet.getMoveDestination().getX() * 10000)) / 10000d);
         movement.put("moveDestinationY", ((int)(fleet.getMoveDestination().getY() * 10000)) / 10000d);
+        //to a tenth: finer only changes it every tick for nothing
+        movement.put("velocityX", Math.round(fleet.getVelocity().getX() * 10) / 10d);
+        movement.put("velocityY", Math.round(fleet.getVelocity().getY() * 10) / 10d);
         return movement;
     }
 
@@ -356,6 +379,7 @@ public class FleetSerializer {
         fleet.setLocation((float) serializedFleet.getDouble("locationX"),(float) serializedFleet.getDouble("locationY"));
 
         fleet.setMoveDestination((float) serializedFleet.getDouble("moveDestinationX"), (float) serializedFleet.getDouble("moveDestinationY"));
+        fleet.getVelocity().set((float) serializedFleet.optDouble("velocityX", 0), (float) serializedFleet.optDouble("velocityY", 0));
 
         fleet.setTransponderOn(serializedFleet.getBoolean("isTransponderOn"));
 

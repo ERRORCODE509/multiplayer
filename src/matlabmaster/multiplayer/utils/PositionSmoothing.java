@@ -10,18 +10,19 @@ import java.util.Iterator;
 import java.util.Map;
 
 /**
- * A fleet copy moves by itself towards where it's headed (its move destination comes with every update), and the
- * position its game sends only corrects it when they've drifted apart. That correction used to put it there at
- * once, a visible jump; now it's made up over a fraction of a second, on top of its own movement. Far off (a
- * teleport, a lost update) it's still put there at once. Every game: players' and the server's copies alike.
- * The same for planets and stations when their orbits are resynced (clients only).
+ * A fleet copy flies by itself, with its game's velocity and towards its destination (both come with every update),
+ * and the position its game sends corrects what's left: a little of the gap at every frame, both axes as one, so it
+ * converges smoothly instead of jumping. It used to be put there at once, then corrected axis by axis only beyond 50
+ * units, which stuttered, mostly sideways to its course (that gap hovered around the threshold). Far off (a
+ * teleport, a lost update) it's still put there at once. Every game: players' and the server's copies alike. The
+ * same for planets and stations when their orbits are resynced (clients only).
  */
 public class PositionSmoothing {
-    /** Closer than this a copy is left alone (as before): about what the network delay puts it behind. */
-    private static final float DEADBAND = 50f;
+    /** Closer than this a copy is left alone: nothing to see. */
+    private static final float DEADBAND = 2f;
     /** Further than this it's put there at once. */
     private static final float SNAP = 500f;
-    /** How much of what's left is made up per second (about 95% within 0.6 s). */
+    /** How much of what's left is made up per second (about 95% within 0.6 s; the gap is renewed 20 times a second). */
     private static final float RATE = 5f;
 
     /** What's still to be made up, per copy (game thread only). */
@@ -33,25 +34,18 @@ public class PositionSmoothing {
     /** The degrees still to be made up, per orbiting entity (game thread only). */
     private static final Map<SectorEntityToken, Float> orbitOffsets = new IdentityHashMap<>();
 
-    /** Where a copy's game has it on one axis (the other NaN): from a fleet update. */
+    /** Where a copy's game has it (from a fleet update, same location). */
     public static void toward(CampaignFleetAPI fleet, float x, float y) {
-        Vector2f at = fleet.getLocation();
-        Vector2f offset = offsets.computeIfAbsent(fleet, f -> new Vector2f());
-        if (!Float.isNaN(x)) offset.x = correction(fleet, x - at.x, true);
-        if (!Float.isNaN(y)) offset.y = correction(fleet, y - at.y, false);
-        if (offset.x == 0f && offset.y == 0f) offsets.remove(fleet);
-    }
-
-    /** The part of an axis' error to make up gradually (0 if none, or if it was just made up at once). */
-    private static float correction(CampaignFleetAPI fleet, float error, boolean xAxis) {
-        if (Math.abs(error) <= DEADBAND) return 0f;
-        if (Math.abs(error) > SNAP) {
-            Vector2f at = fleet.getLocation();
-            if (xAxis) fleet.setLocation(at.x + error, at.y);
-            else fleet.setLocation(at.x, at.y + error);
-            return 0f;
+        float dx = x - fleet.getLocation().x, dy = y - fleet.getLocation().y;
+        float gap = (float) Math.sqrt(dx * dx + dy * dy);
+        if (gap > SNAP) {
+            offsets.remove(fleet);
+            fleet.setLocation(x, y);
+        } else if (gap < DEADBAND) {
+            offsets.remove(fleet);
+        } else {
+            offsets.computeIfAbsent(fleet, f -> new Vector2f()).set(dx, dy);
         }
-        return error;
     }
 
     /**
