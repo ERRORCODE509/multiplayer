@@ -20,11 +20,21 @@ public class SectorScriptsUtility {
         //copy first so the sector's list is never modified while being iterated
         for (EveryFrameScript script : new ArrayList<>(Global.getSector().getScripts())) {
             if (script instanceof ClientScripts || script instanceof ServerScripts) continue; //never remove our own scripts
+            if (isGameMechanic(script)) continue;
             if (!savedScripts.contains(script)) {
                 savedScripts.add(script); //also catches scripts added since the last call
             }
             Global.getSector().removeScript(script);
         }
+    }
+
+    /**
+     * The game core's own scripts (not the API's, not mods'): mechanics of this player's own fleet that the core adds
+     * as sector scripts, like the jump through a jump point (CampaignEngine.doHyperspaceTransition), drifting with
+     * no fuel, and sensor ping visuals. Taking them out left a jumping fleet stuck in the transition for good.
+     */
+    private static boolean isGameMechanic(EveryFrameScript script) {
+        return script.getClass().getName().startsWith("com.fs.starfarer.campaign.");
     }
 
     public void restoreScripts(){
