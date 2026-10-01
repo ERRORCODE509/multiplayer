@@ -44,13 +44,14 @@ rm -rf "$S" && mkdir -p "$S/mod" && javac --release 17 -nowarn -encoding UTF-8 -
 - The **server's game is the only authority on the world** (NPC fleets, clock, markets, economy); each **player's
   game is the authority on their own fleet, reputation and colonies**. Clients strip sector scripts while connected
   (`utils/SectorScriptsUtility`, keeps core-engine scripts and `BaseEventIntel` events) and show server-driven copies.
-- Protocol version 5 (`server/Server.PROTOCOL_VERSION`). Join: `welcome` (client id) -> client sends `hello` (permanent
+- Protocol version 6 (`server/Server.PROTOCOL_VERSION`). Join: `welcome` (client id) -> client sends `hello` (permanent
   player id from `utils/PlayerIdentity`, name) -> server reserves a player faction (`server/PlayerRegistry`, kept in
   the world save's persistent data) and replies `yourFaction`.
 - `server/Server` message dispatch (network threads; game work goes through `gameThreadTasks`). `server/ServerScripts`
   per-frame: fleet updates per client (`updates/FleetSync`, `VisibleFleets`), clock, dialog holds/pins and
   interceptions, dedicated own-fleet hiding (no signature/fuel/supplies), agent data. `server/ServerFactionSync`
-  (relations, player faction looks, colonies), `server/ServerMarkets` (market stock and trades).
+  (relations, player faction looks, colonies), `server/ServerMarkets` (market stock and trades), `server/ServerDebris`
+  (battle debris: relays players' fields, shares the server game's own, sends them all on joining).
 - Client: `client/Client` (connection, `completeJoin`), `client/ClientScripts` (message handling, per-second sends:
   reputation/blueprints/name, colonies, debris, hostile wrapping), `ClientMarkets`, `InteractionOrbit`,
   `HostileAwareTactics`. `utils/PauseUtility` sends `paused`/`unpaused` (dialog target and positions).
@@ -62,6 +63,10 @@ rm -rf "$S" && mkdir -p "$S/mod" && javac --release 17 -nowarn -encoding UTF-8 -
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
+- [ ] Debris (`9dc2dfb`): a player joining after a battle gets its debris field ("The world has N battle debris
+      fields" in their log); a field salvaged while a player was offline is gone for them on rejoining (not
+      brought back); with "host current game", the host's battles leave debris for the clients too, and the host
+      salvaging it removes it for them. A field received late lasts only what it has left.
 - [ ] A client jumping: a blue flash where its fleet leaves and arrives, on the host and other clients (`1016605`).
 - [ ] Hosting from your own game: a client trading at the host's colony; the server log says the tariff, the
       host's monthly report shows it (`cfff649`).
@@ -88,6 +93,6 @@ hyperspace gravity wells, factions shown in the intel tab only while connected.
 ## Known limits / ideas (not started)
 - Crisis raids' fleets don't move while their owner is connected (they go through RouteManager, off on clients).
 - Visitors' prices at a player's colony come from their own game's copy (out of its economy): may differ.
-- A player who joins later doesn't get debris fields that already exist; salvage loot isn't shared.
+- Salvage loot isn't shared, and a later battle adding to an existing field doesn't update the others' copies.
 - Clock drift: a client runs slightly slower than the server and is corrected about every few seconds.
 - Players are always neutral to each other (no PvP).
