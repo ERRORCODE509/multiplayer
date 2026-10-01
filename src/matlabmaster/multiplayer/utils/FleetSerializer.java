@@ -56,11 +56,16 @@ public class FleetSerializer {
         //a flash where it left and where it arrived, in place of the jump's own (no transition here, see "location").
         //After the whole diff: its keys come in no particular order, and the new position is in it
         if (now != leftFrom && now != null) {
-            java.awt.Color jump = new java.awt.Color(120, 190, 255, 255);
-            float size = Math.max(100f, fleet.getRadius() * 4f);
-            if (leftFrom != null) leftFrom.addHitParticle(leftAt, new org.lwjgl.util.vector.Vector2f(), size, 1f, 1f, jump);
-            now.addHitParticle(new org.lwjgl.util.vector.Vector2f(fleet.getLocation()), new org.lwjgl.util.vector.Vector2f(), size, 1f, 1f, jump);
+            if (leftFrom != null) jumpFlash(fleet, leftFrom, leftAt);
+            jumpFlash(fleet, now, fleet.getLocation());
         }
+    }
+
+    /** A bright flash, sized to the fleet, where it leaves or arrives by a jump (copies have no transition of their own). */
+    public static void jumpFlash(CampaignFleetAPI fleet, LocationAPI where, org.lwjgl.util.vector.Vector2f at) {
+        java.awt.Color jump = new java.awt.Color(120, 190, 255, 255);
+        float size = Math.max(100f, fleet.getRadius() * 4f);
+        where.addHitParticle(new org.lwjgl.util.vector.Vector2f(at), new org.lwjgl.util.vector.Vector2f(), size, 1f, 1f, jump);
     }
 
     /** A root property's new value in a diff (UPDATE), or NaN. Number: Integer or Double. */

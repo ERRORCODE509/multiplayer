@@ -72,6 +72,8 @@ public class FleetSync
 
     /** The NPC fleets present this tick, by id (filled by computeGlobalDiffs). */
     private final Map<String, CampaignFleetAPI> currentFleets = new HashMap<>();
+    /** The NPC fleets that went to another location this tick (filled by computeGlobalDiffs), see sendVisibleFleetsUpdates. */
+    private final Set<String> jumpedThisTick = new HashSet<>();
     /** Per client: the NPC fleets it has been sent and not told were removed. */
     private final Map<String, Set<String>> sentToClient = new HashMap<>();
 
@@ -93,11 +95,17 @@ public class FleetSync
                 String fleetId = entry.getKey();
                 boolean was = sent.contains(fleetId);
                 boolean sees = VisibleFleets.canSee(observer, entry.getValue(), was);
+                //one that jumped into or out of sight: the client shows the jump's flash (it has no transition of its own)
+                boolean jumped = jumpedThisTick.contains(fleetId);
                 if (sees && !was) {
-                    updates.put(fleetId, JsonDiffUtility.instruction("ADDED", lastTickGlobalFleet.getJSONObject(fleetId), null));
+                    JSONObject added = JsonDiffUtility.instruction("ADDED", lastTickGlobalFleet.getJSONObject(fleetId), null);
+                    if (jumped) added.put("jumped", true);
+                    updates.put(fleetId, added);
                     sent.add(fleetId);
                 } else if (!sees && was) {
-                    updates.put(fleetId, JsonDiffUtility.instruction("REMOVED", null, fleetId));
+                    JSONObject removed = JsonDiffUtility.instruction("REMOVED", null, fleetId);
+                    if (jumped) removed.put("jumped", true);
+                    updates.put(fleetId, removed);
                     sent.remove(fleetId);
                 } else if (sees && diffs.has(fleetId)) {
                     updates.put(fleetId, diffs.get(fleetId));
@@ -121,6 +129,7 @@ public class FleetSync
     /** This tick's changes to every NPC fleet (see FULL_SYNC_TICKS), keeping lastTickGlobalFleet current. */
     private JSONObject computeGlobalDiffs() throws JSONException {
         currentFleets.clear();
+        jumpedThisTick.clear();
         int slice = globalTick++ % FULL_SYNC_TICKS;
         JSONObject diffs = new JSONObject();
         Set<String> present = new HashSet<>();
@@ -144,6 +153,7 @@ public class FleetSync
                 Object now = movement.get(key);
                 Object before = last.opt(key);
                 if (!now.equals(before)) {
+                    if ("location".equals(key)) jumpedThisTick.add(fleetId);
                     fleetDiff.put(key, JsonDiffUtility.instruction("UPDATE", now, before));
                     last.put(key, now); //so the full diff below doesn't send it again
                 }

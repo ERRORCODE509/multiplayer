@@ -137,7 +137,6 @@ public class ClientScripts implements EveryFrameScript {
             if (!client.isSelfHosted) {
                 CopyAI.installAround(Global.getSector().getPlayerFleet()); //the world's fleets decide as vanilla's
                 syncDebris();
-                showOtherPlayers();
                 removeDuplicateCopies();
             }
         }
@@ -454,6 +453,8 @@ public class ClientScripts implements EveryFrameScript {
             if ("REMOVED".equals(action)) {
                 if (existing instanceof CampaignFleetAPI && existing != Global.getSector().getPlayerFleet()
                         && existing.getContainingLocation() != null) {
+                    //jumped out of sight: the jump's flash where it was, as other players' fleets have
+                    if (change.optBoolean("jumped")) FleetSerializer.jumpFlash((CampaignFleetAPI) existing, existing.getContainingLocation(), existing.getLocation());
                     existing.getContainingLocation().removeEntity(existing);
                 }
             } else if ("ADDED".equals(action) && !(existing instanceof CampaignFleetAPI)) {
@@ -461,6 +462,7 @@ public class ClientScripts implements EveryFrameScript {
                 CampaignFleetAPI copy = Global.getFactory().createEmptyFleet(Faction.NO_FACTION, true);
                 FleetSerializer.unSerializeFleet(change.getJSONObject("value"), copy);
                 CopyAI.install(copy);
+                if (change.optBoolean("jumped") && copy.getContainingLocation() != null) FleetSerializer.jumpFlash(copy, copy.getContainingLocation(), copy.getLocation());
             }
             return;
         }
@@ -557,22 +559,6 @@ public class ClientScripts implements EveryFrameScript {
             MultiplayerLog.log().error("Couldn't sync the debris fields", e);
         }
     }
-
-    /**
-     * The other players' fleets are seen from anywhere in the same location: there's no fighting them (see
-     * PlayerEncounters), and players play together. Only in a client's game, where the NPC fleets don't think for
-     * themselves; in the server's game they'd see them from everywhere too. Gone with the copies on leaving.
-     */
-    private void showOtherPlayers() {
-        CampaignFleetAPI own = Global.getSector().getPlayerFleet();
-        if (own == null || own.getContainingLocation() == null) return;
-        for (CampaignFleetAPI fleet : own.getContainingLocation().getFleets()) {
-            if (!fleet.hasTag("playerFleet") || fleet.isPlayerFleet()) continue;
-            fleet.getStats().getDetectedRangeMod().modifyFlat(SEEN_ID, 100000f, "Another player");
-        }
-    }
-
-    private static final String SEEN_ID = "multiplayer_other_player";
 
     /**
      * Our colonies (they run in this game, the only authority on them), to the server, which mirrors them in the
