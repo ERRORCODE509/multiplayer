@@ -1,6 +1,9 @@
 package matlabmaster.multiplayer.utils;
 
 import com.fs.starfarer.api.Global;
+import com.fs.starfarer.api.campaign.CampaignFleetAPI;
+import com.fs.starfarer.api.campaign.InteractionDialogAPI;
+import com.fs.starfarer.api.campaign.SectorEntityToken;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.client.Client;
 import matlabmaster.multiplayer.updates.FleetSync;
@@ -18,6 +21,12 @@ public class PauseUtility {
                     client.wasPaused = true;
                     JSONObject packet = new JSONObject();
                     packet.put("commandId","paused");
+                    //the fleet we're talking to: the world doesn't pause for us, so the server holds it still
+                    InteractionDialogAPI dialog = Global.getSector().getCampaignUI().getCurrentInteractionDialog();
+                    SectorEntityToken target = dialog == null ? null : dialog.getInteractionTarget();
+                    if (target instanceof CampaignFleetAPI && target != Global.getSector().getPlayerFleet()) {
+                        packet.put("interactionTarget", target.getId());
+                    }
 
                     //name update
                     String fleetName = Global.getSector().getPlayerFleet().getName();

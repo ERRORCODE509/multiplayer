@@ -4,17 +4,22 @@ import com.fs.starfarer.api.EveryFrameScript;
 import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.CampaignFleetAPI;
 import com.fs.starfarer.api.campaign.LocationAPI;
+import com.fs.starfarer.api.campaign.SectorEntityToken;
 import com.fs.starfarer.api.impl.campaign.ids.MemFlags;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.MultiplayerModPlugin;
 import matlabmaster.multiplayer.updates.FleetSync;
 import matlabmaster.multiplayer.utils.ClockUtility;
 import org.json.JSONObject;
+import org.lwjgl.util.vector.Vector2f;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -50,6 +55,8 @@ public class ServerScripts implements EveryFrameScript {
     private boolean wasRunning = false;
     private boolean worldWasPaused = false;
     private boolean ownFleetHidden = false;
+    /** Where each fleet a player is talking to is held (fleet id -> location), see holdInteractionTargets. */
+    private final Map<String, Vector2f> heldAt = new HashMap<>();
 
     public ServerScripts(Server serverInstance){
         this.serverInstance = serverInstance;
@@ -77,6 +84,8 @@ public class ServerScripts implements EveryFrameScript {
             return;
         }
         if (!wasRunning) started();
+
+        holdInteractionTargets();
 
         boolean paused = Global.getSector().isPaused();
         if (serverInstance.isDedicated()) {
@@ -144,6 +153,8 @@ public class ServerScripts implements EveryFrameScript {
         wasRunning = false;
         System.getProperties().remove(PLAYER_POSITIONS_KEY); //back to vanilla spawning
         System.getProperties().remove(FULL_RATE_LOCATIONS_KEY); //and to vanilla location updates
+        serverInstance.interactions.clear(); //nobody is connected to talk to anyone
+        heldAt.clear();
         hideOwnFleet(false);
         //a dedicated server kept copies of the players' fleets: they don't belong in its game
         List<CampaignFleetAPI> copies = new ArrayList<>();
@@ -179,6 +190,25 @@ public class ServerScripts implements EveryFrameScript {
         for (int i = 0; i < positions.length; i++) positions[i] = xy.get(i);
         System.getProperties().put(PLAYER_POSITIONS_KEY, positions);
         System.getProperties().put(FULL_RATE_LOCATIONS_KEY, withPlayers);
+    }
+
+    /**
+     * Keeps each NPC fleet a player is in a dialog with where it was when the dialog opened. In single player the
+     * dialog pauses the game; here the world runs on, and the fleet would fly off mid-conversation. Runs after this
+     * frame's movement (sector scripts come after the locations), so the fleet doesn't move at all.
+     */
+    private void holdInteractionTargets() {
+        Set<String> targets = new HashSet<>(serverInstance.interactions.values());
+        heldAt.keySet().retainAll(targets);
+        for (String fleetId : targets) {
+            SectorEntityToken entity = Global.getSector().getEntityById(fleetId);
+            if (!(entity instanceof CampaignFleetAPI)) continue; //gone (destroyed, despawned)
+            CampaignFleetAPI fleet = (CampaignFleetAPI) entity;
+            if (fleet.isPlayerFleet() || fleet.hasTag("playerFleet")) continue; //players move themselves
+            Vector2f at = heldAt.computeIfAbsent(fleetId, id -> new Vector2f(fleet.getLocation()));
+            fleet.setLocation(at.x, at.y);
+            fleet.getVelocity().set(0f, 0f);
+        }
     }
 
     private void hideOwnFleet(boolean hide) {

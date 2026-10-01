@@ -43,6 +43,11 @@ public class Server {
     private volatile String localClientId;
     /** Player fleets a dedicated server has asked their client for in full, so it asks only once. */
     private final Set<String> pendingPlayerSnapshots = ConcurrentHashMap.newKeySet();
+    /**
+     * The NPC fleet each player is in a dialog with (client id -> fleet id). In single player the dialog pauses the
+     * game; here the world runs on, so ServerScripts holds these fleets still until the dialog closes.
+     */
+    public final Map<String, String> interactions = new ConcurrentHashMap<>();
     /** Connected players this game has no copy of the fleet of (game thread only), so it's only logged once. */
     private final Set<String> missingPlayerFleets = new HashSet<>();
     /** The host's game version, seed and mods, sent in every welcome so joiners can check they match. */
@@ -238,8 +243,14 @@ public class Server {
                     break;
                 case "paused":
                 case "unpaused":
-                    //a player in a dialog; the world doesn't depend on players any more, so this is only logged
-                    MultiplayerLog.log().info("client " + clientId + " has " + commandId);
+                    //a player in a dialog: the world runs on, except the fleet they're talking to (ServerScripts holds it)
+                    String target = "paused".equals(commandId) ? json.optString("interactionTarget", null) : null;
+                    if (target != null) {
+                        interactions.put(clientId, target);
+                    } else {
+                        interactions.remove(clientId);
+                    }
+                    MultiplayerLog.log().info("client " + clientId + " has " + commandId + (target != null ? " (talking to " + target + ")" : ""));
                     break;
                 case "requestPlayerFleetSnapshot":
                     //relay the information to concerned client (who may have left already)
@@ -407,6 +418,7 @@ public class Server {
 
         public void closeConnection() {
             clients.remove(clientId);
+            interactions.remove(clientId); //a player who left isn't talking to anyone
             if (clientId.equals(localClientId)) localClientId = null;
             if (dedicated) { //remove this game's copy of their fleet
                 pendingPlayerSnapshots.remove(clientId);
