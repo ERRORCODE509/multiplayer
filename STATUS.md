@@ -68,7 +68,7 @@ rm -rf "$S" && mkdir -p "$S/mod" && javac --release 17 -nowarn -encoding UTF-8 -
       Leave (both fleets shown), on a client and on the host ("host current game"); fighting an NPC fleet next to
       another player doesn't pull them in ("supporting your forces" / "joining the enemy" never names a player).
 - [ ] Smoothing (`7c8341b`): other players' and NPC fleets no longer jump when the sync corrects them; they glide
-      there in well under a second. Jumps between locations still move them at once (with the flash).
+      there in well under a second (over 500 units off they still jump). Jumps between locations still move them at once (with the flash).
 - [ ] Closing the server (or losing the connection) while a client is in a dialog: the client's fleet name loses
       " [PAUSED]" (`a546ef8`); a save that has it loses it on loading.
 - [ ] Clock (`3ec8821`): a client's date no longer jumps an hour every few seconds (the log no longer says "Clock

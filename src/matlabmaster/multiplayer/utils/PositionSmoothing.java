@@ -17,7 +17,7 @@ public class PositionSmoothing {
     /** Closer than this a copy is left alone (as before): about what the network delay puts it behind. */
     private static final float DEADBAND = 50f;
     /** Further than this it's put there at once. */
-    private static final float SNAP = 2000f;
+    private static final float SNAP = 500f;
     /** How much of what's left is made up per second (about 95% within 0.6 s). */
     private static final float RATE = 5f;
 
