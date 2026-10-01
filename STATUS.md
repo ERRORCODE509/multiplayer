@@ -92,13 +92,10 @@ Unlicense, as its developer stated (also in `LICENSE`).
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
-- [ ] Hostile NPC fleets (`54219c2`): cause found with the bridge (copies had no AI: tooltip/map asked it, and an
-      AI-less fleet never engages or pursues). CopyAI now decides for every NPC copy as vanilla's would. Check:
-      after `ss_act guest rep {factionId: hegemony, value: -0.75}`, Hegemony fleets show red/hostile, an intercepting
-      patrol fights (or pursues when leaving), `ss_dump guest fleets {near: 3000}` shows `vsPlayer.ai: CopyAI`;
-      saving while connected still works (copies get their vanilla AI back first). Watch for re-interception
-      loops: the server lets the same fleet intercept again after 10 s (INTERCEPT_COOLDOWN), vanilla stands down
-      for half a day.
+- [x] Hostile NPC fleets (`54219c2`): tested. Copies had no AI (found with the bridge); CopyAI decides for them as
+      vanilla's: Hegemony fleets show hostile after the reputation drop, an intercepting patrol fought, the battle
+      result and the reputation hit reached the server. Still to watch: a fleet that survives a fight re-intercepting
+      after 10 s (INTERCEPT_COOLDOWN; vanilla stands down for half a day); saving while connected with CopyAI on.
 - [x] Fleet copies (`edd4467`, `82c4d6c`): checked with the agent bridge. Around the client every fleet keys by id
       (no duplicates), rosters in the same order, positions within 60; the only fleets missing on the client are the
       server's out of its sensor range. A client's fleet and its copy on the server: 21-29 units apart at 230 units/s
