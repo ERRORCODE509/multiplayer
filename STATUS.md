@@ -97,20 +97,23 @@ only), hosting/tariff, setting the tariff, left alone in dialogs, orbit after a 
 jumping between locations, construction catch-up, reputation sound (mostly: sometimes doesn't play).
 Not tested yet: campaign messages, losing the whole fleet, debris.
 
-**Found by the user (2026-10-01), to fix:**
-- A. Other players' fleets are only seen within normal sensor range: `showOtherPlayers` (detected range +100000 on
-  copies, clients only) isn't working. Check `vsPlayer.visibility` of a player's copy with the bridge.
-- B. NPC fleets that jump just vanish on the client (the flash is only on a copy's location change; for NPC fleets
-  the server sends REMOVED as they leave the client's sight instead).
-- C. The host speeding up time: clients don't follow and resync constantly (clock jumps, orbits, positions).
-- D. The host trading at a client's colony: the owner's game gets nothing (no stock change, no tariff). The host's
-  ClientMarkets returns early when self-hosted, so its trades at another player's colony mirror are never sent on.
-- E. Trading at a player's colony raises reputation with independents instead of that player's faction.
-- F. A client's fleet orbiting a planet sometimes lets go and stops following it (the game says it stopped orbiting).
+**Found by the user (2026-10-01):**
+- A. Other players' fleets are seen by normal detection only: by design (a bigger detected range would show them
+  to NPC fleets too). The boost that tried it (and didn't work) is gone (`d817355`).
+- C. **Won't fix:** time speed-up isn't supported in multiplayer (the user still uses it sometimes). Clients can't
+  follow it (no API to fast-forward a game), so they resync constantly meanwhile; it runs fine otherwise.
+- [ ] B. NPC fleets that jump in or out of a client's sight flash as players' do (`d817355`).
+- [ ] D. The host buying/selling at a client's colony: the owner's stock changes (sell a lot of fuel: surplus) and
+      the tariff shows in the owner's monthly report, paid at month end (`26d6613`).
+- [ ] E. Trading at a player's colony raises reputation with that player's faction, not the independents
+      (`26d6613`).
+- [ ] F. A fleet kept by a planet after a dialog stays with it through UI clicks, and lets go on a move order
+      (`5f43a1c`).
+
 - [x] Hostile NPC fleets (`54219c2`): tested. Copies had no AI (found with the bridge); CopyAI decides for them as
       vanilla's: Hegemony fleets show hostile after the reputation drop, an intercepting patrol fought, the battle
-      result and the reputation hit reached the server. Still to watch: a fleet that survives a fight re-intercepting
-      after 10 s (INTERCEPT_COOLDOWN; vanilla stands down for half a day); saving while connected with CopyAI on.
+      result and the reputation hit reached the server. Also fine: no re-interception loop after a fight, and
+      saving while connected with CopyAI on.
 - [x] Fleet copies (`edd4467`, `82c4d6c`): checked with the agent bridge. Around the client every fleet keys by id
       (no duplicates), rosters in the same order, positions within 60; the only fleets missing on the client are the
       server's out of its sensor range. A client's fleet and its copy on the server: 21-29 units apart at 230 units/s
