@@ -47,6 +47,8 @@ public class ClientScripts implements EveryFrameScript {
     private String coloniesSent = null;
     private float coloniesTimer = 0f;
     private static final float COLONIES_INTERVAL = 5f;
+    /** The clock corrections not made up for in our colonies' construction yet (game days), see handleServerTime. */
+    private float clockCorrectedDays = 0f;
     /** Whether this game has mirrors of other players' colonies, from the server: removed on leaving it. */
     private boolean hasMirrors = false;
 
@@ -322,10 +324,14 @@ public class ClientScripts implements EveryFrameScript {
                 case "handleServerTime":
                     if (!client.isSelfHosted) { //the host's own game is the server's clock
                         long corrected = ClockUtility.syncToServer(Global.getSector().getClock(), message.getLong("timestamp"));
-                        if (corrected != 0) {
-                            MultiplayerLog.log().info("Clock set to the server's (it was " + (corrected / 3600000f) + " game hours off)");
-                            //behind the world (it fast-forwarded, or we ran slow): our colonies' construction catches up too
-                            if (corrected > 0) ColonyMirrors.catchUpConstruction(corrected / 86400000f);
+                        boolean jumped = Math.abs(corrected) > ClockUtility.MAX_DRIFT_MS;
+                        if (jumped) MultiplayerLog.log().info("Clock set to the server's (it was " + (corrected / 3600000f) + " game hours off)");
+                        //behind the world (it fast-forwarded, or we ran slow): our colonies' construction catches up
+                        //too, the nudges once they add up to a few game hours
+                        clockCorrectedDays += corrected / 86400000f;
+                        if (jumped || clockCorrectedDays >= 0.1f) {
+                            if (clockCorrectedDays > 0) ColonyMirrors.catchUpConstruction(clockCorrectedDays);
+                            clockCorrectedDays = 0f;
                         }
                     }
                     client.ui.setServerTime(message.getLong("timestamp"));
