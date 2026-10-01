@@ -63,6 +63,8 @@ rm -rf "$S" && mkdir -p "$S/mod" && javac --release 17 -nowarn -encoding UTF-8 -
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
+- [ ] Clock (`3ec8821`): a client's date no longer jumps an hour every few seconds (the log no longer says "Clock
+      set to the server's" every few seconds; it still does after a host fast-forward or a long dialog).
 - [ ] Debris (`9dc2dfb`): a player joining after a battle gets its debris field ("The world has N battle debris
       fields" in their log); a field salvaged while a player was offline is gone for them on rejoining (not
       brought back); with "host current game", the host's battles leave debris for the clients too, and the host
@@ -92,7 +94,10 @@ hyperspace gravity wells, factions shown in the intel tab only while connected.
 
 ## Known limits / ideas (not started)
 - Crisis raids' fleets don't move while their owner is connected (they go through RouteManager, off on clients).
+  Needs a decision: turning RouteManager on in a client would also run every route in its own save (trade fleets,
+  patrols...) and duplicate the world's fleets; the raid would have to run in the world (server) or only the raid's
+  routes in the client.
 - Visitors' prices at a player's colony come from their own game's copy (out of its economy): may differ.
 - Salvage loot isn't shared, and a later battle adding to an existing field doesn't update the others' copies.
-- Clock drift: a client runs slightly slower than the server and is corrected about every few seconds.
+- Clock: a client stays up to 5 game minutes (the dead band) behind the server, plus the network delay.
 - Players are always neutral to each other (no PvP).
