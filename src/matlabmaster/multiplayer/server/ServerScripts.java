@@ -5,6 +5,7 @@ import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.CampaignFleetAPI;
 import com.fs.starfarer.api.campaign.LocationAPI;
 import com.fs.starfarer.api.campaign.SectorEntityToken;
+import com.fs.starfarer.api.fleet.FleetMemberAPI;
 import com.fs.starfarer.api.impl.campaign.ids.MemFlags;
 import com.fs.starfarer.api.util.Misc;
 import matlabmaster.multiplayer.MultiplayerLog;
@@ -45,7 +46,7 @@ public class ServerScripts implements EveryFrameScript {
      */
     public static final String FULL_RATE_LOCATIONS_KEY = "multiplayer.fullRate.locations";
 
-    /** Hides a dedicated server's own player fleet from the NPC fleets of its world (nobody plays it). */
+    /** Hides a dedicated server's own player fleet from the NPC fleets of its world, and it uses no fuel or supplies (nobody plays it). */
     private static final String HIDDEN_ID = "multiplayer_dedicated_server";
 
     private final Server serverInstance;
@@ -264,9 +265,20 @@ public class ServerScripts implements EveryFrameScript {
         if (hide) {
             own.getMemoryWithoutUpdate().set(MemFlags.FLEET_IGNORED_BY_OTHER_FLEETS, true);
             own.getStats().getDetectedRangeMod().modifyMult(HIDDEN_ID, 0f, "Dedicated multiplayer server");
+            //nobody plays it, so it shouldn't run out of anything while it sits there (or is moved around)
+            own.getStats().getFuelUseHyperMult().modifyMult(HIDDEN_ID, 0f, "Dedicated multiplayer server");
+            own.getStats().getFuelUseNormalMult().modifyMult(HIDDEN_ID, 0f, "Dedicated multiplayer server");
+            for (FleetMemberAPI member : own.getFleetData().getMembersListCopy()) {
+                member.getStats().getSuppliesPerMonth().modifyMult(HIDDEN_ID, 0f, "Dedicated multiplayer server");
+            }
         } else {
             own.getMemoryWithoutUpdate().unset(MemFlags.FLEET_IGNORED_BY_OTHER_FLEETS);
             own.getStats().getDetectedRangeMod().unmodify(HIDDEN_ID);
+            own.getStats().getFuelUseHyperMult().unmodify(HIDDEN_ID);
+            own.getStats().getFuelUseNormalMult().unmodify(HIDDEN_ID);
+            for (FleetMemberAPI member : own.getFleetData().getMembersListCopy()) {
+                member.getStats().getSuppliesPerMonth().unmodify(HIDDEN_ID);
+            }
         }
     }
 
