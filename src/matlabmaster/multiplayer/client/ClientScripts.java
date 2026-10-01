@@ -434,11 +434,16 @@ public class ClientScripts implements EveryFrameScript {
             client.send(text);
             factionSent = text;
             if (reputationSent != null) { //what changed since the last time (on joining it's all of it)
+                double highest = 0;
                 for (Iterator<?> it = reputation.keys(); it.hasNext(); ) {
                     String id = (String) it.next();
                     double before = reputationSent.optDouble(id, 0), now = reputation.getDouble(id);
-                    if (Math.abs(now - before) >= 0.005) MultiplayerLog.log().info("Our reputation with " + id + ": " + before + " -> " + now + " (sent to the server)");
+                    if (Math.abs(now - before) < 0.005) continue;
+                    MultiplayerLog.log().info("Our reputation with " + id + ": " + before + " -> " + now + " (sent to the server)");
+                    if (Math.abs(now - before) > Math.abs(highest)) highest = now - before;
                 }
+                //vanilla's sound for it comes from CoreScript, a sector script, which is off while connected
+                if (highest != 0) Global.getSoundPlayer().playUISound(highest > 0 ? "ui_rep_raise" : "ui_rep_drop", 1f, 1f);
             }
             reputationSent = reputation;
         } catch (Exception e) {

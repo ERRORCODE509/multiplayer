@@ -8,6 +8,7 @@ Pushing over HTTPS sometimes drops; retry, or push one commit at a time
 (`for c in $(git rev-list --reverse origin/dev..dev); do git push origin $c:refs/heads/dev || break; done`).
 
 ## Needs testing (latest first)
+- [ ] Reputation change sound plays while connected (once per change; the saved-up one still plays again on disconnecting).
 - [ ] NPC fleets leave a player alone during a dialog/interception (no swarm afterwards). Commit `255db92`.
 - [ ] Fleet kept orbiting a planet after a dialog moves smoothly on the host (not every ~10 s). Commit `255db92`.
 - [ ] Hostile fleets shown as hostile in the client (map colours): their AI's tactical module is wrapped (HostileAwareTactics, commit after 255db92). Also check saving while connected still works.
@@ -24,7 +25,7 @@ second client (Commerce needed), player names in the join log, factions/reputati
    `ClientScripts.markHostiles` doesn't work). Plan: wrap the tactical module of the client's NPC copies
    (delegate everything, `isHostileTo(playerFleet)` = player faction hostile to the fleet's faction), unwrap before
    saving so the wrapper class never lands in a save.
-2. **Reputation sound only plays after disconnecting** (the change itself applies at once). Not traced yet: vanilla
+2. **(Done, needs testing) Reputation sound only played after disconnecting:** vanilla plays it from CoreScript.playRepChangeSoundsIfNeeded (a sector script, off on clients); ClientScripts.sendOwnFaction now plays it on a change. (the change itself applies at once). Not traced yet: vanilla
    `CoreReputationPlugin.addAdjustmentMessage` prints to the dialog text panel; the sound may come with a
    notification queued somewhere the connected client holds up.
 3. **Later:** tariff income from visitors' trades at a player's colony paid at month end; tariff adjustable by the
