@@ -7,6 +7,7 @@ import com.fs.starfarer.api.campaign.BattleAPI;
 import com.fs.starfarer.api.campaign.CampaignFleetAPI;
 import com.fs.starfarer.api.campaign.LocationAPI;
 import com.fs.starfarer.api.campaign.SectorEntityToken;
+import com.fs.starfarer.api.impl.campaign.ids.MemFlags;
 import com.fs.starfarer.campaign.Faction;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.updates.BattleSync;
@@ -106,6 +107,7 @@ public class ClientScripts implements EveryFrameScript {
         if (factionSent == null || factionTimer >= PlayerFactions.RELATIONS_INTERVAL) {
             factionTimer = 0f;
             sendOwnFaction();
+            if (!client.isSelfHosted) markHostiles();
         }
         coloniesTimer += amount;
         if (coloniesSent == null || coloniesTimer >= COLONIES_INTERVAL) {
@@ -308,6 +310,22 @@ public class ClientScripts implements EveryFrameScript {
                         hasMirrors = true;
                     }
                     break;
+                case "intercepted": {
+                    //a fleet the server's AI chased caught us: the encounter is ours to open, as vanilla does
+                    SectorEntityToken fleet = Global.getSector().getEntityById(message.getString("fleetId"));
+                    CampaignFleetAPI own = Global.getSector().getPlayerFleet();
+                    boolean opened = false;
+                    if (fleet instanceof CampaignFleetAPI && own != null && !own.isInHyperspaceTransition()
+                            && !Global.getSector().getCampaignUI().isShowingDialog()) {
+                        opened = Global.getSector().getCampaignUI().showInteractionDialog(fleet);
+                    }
+                    if (!opened) { //the server holds us both until we answer: let go
+                        JSONObject release = new JSONObject();
+                        release.put("commandId", "unpaused");
+                        client.send(release.toString());
+                    }
+                    break;
+                }
                 case "colonyStockRequest":
                     //someone opened one of our colonies' market: its stock is ours to give
                     markets.colonyStockRequest(client, message.getString("marketId"));
@@ -392,6 +410,24 @@ public class ClientScripts implements EveryFrameScript {
             reputationSent = reputation;
         } catch (Exception e) {
             MultiplayerLog.log().error("Couldn't send our reputation to the server", e);
+        }
+    }
+
+    /**
+     * Whether a fleet is hostile to us is its AI's call (CampaignFleet.isHostileTo asks it), and the copies of the
+     * world's NPC fleets here don't think for themselves (the server moves them), so they kept showing as they were
+     * when they arrived, neutral after we'd made their faction hostile. The NPC fleets around us whose faction is
+     * hostile to us now (our reputation: this game's) are marked hostile as vanilla marks a fleet, for a moment at a
+     * time (renewed every second, gone by itself once it isn't, and never left behind in the save).
+     */
+    private void markHostiles() {
+        CampaignFleetAPI own = Global.getSector().getPlayerFleet();
+        if (own == null || own.getContainingLocation() == null) return;
+        for (CampaignFleetAPI fleet : own.getContainingLocation().getFleets()) {
+            if (fleet == own || fleet.hasTag("playerFleet") || fleet.getFaction() == null) continue;
+            if (Global.getSector().getPlayerFaction().isHostileTo(fleet.getFaction())) {
+                fleet.getMemoryWithoutUpdate().set(MemFlags.MEMORY_KEY_MAKE_HOSTILE, true, 0.5f);
+            }
         }
     }
 

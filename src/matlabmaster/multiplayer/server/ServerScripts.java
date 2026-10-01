@@ -5,6 +5,8 @@ import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.CampaignFleetAPI;
 import com.fs.starfarer.api.campaign.LocationAPI;
 import com.fs.starfarer.api.campaign.SectorEntityToken;
+import com.fs.starfarer.api.campaign.ai.ModularFleetAIAPI;
+import com.fs.starfarer.api.campaign.ai.TacticalModulePlugin;
 import com.fs.starfarer.api.fleet.FleetMemberAPI;
 import com.fs.starfarer.api.impl.campaign.ids.MemFlags;
 import com.fs.starfarer.api.util.Misc;
@@ -62,6 +64,19 @@ public class ServerScripts implements EveryFrameScript {
     private final Map<String, Vector2f> heldAt = new HashMap<>();
     /** Players' fleets kept by what they're talking to (client id -> target id), see orbitWhileTalking. */
     private final Map<String, String> orbiting = new HashMap<>();
+    /** Where players' fleets are stopped while they're in a dialog (client id -> location). */
+    private final Map<String, Vector2f> pinnedAt = new HashMap<>();
+    /** How close (beyond touching) an NPC fleet chasing a player gets before it intercepts them. */
+    private static final float INTERCEPT_MARGIN = 25f;
+    /** Seconds before the same fleet can intercept the same player again (after they've had it out, or got away). */
+    private static final float INTERCEPT_COOLDOWN = 10f;
+    /** Seconds a player's game has to open an interception before both fleets are let go. */
+    private static final float INTERCEPT_ANSWER_TIME = 3f;
+    private float clock = 0f;
+    private final Map<String, Float> lastIntercept = new HashMap<>();
+    /** Interceptions waiting for the player's game to open them (client id -> the hold, and since when). */
+    private final Map<String, Server.Interaction> intercepts = new HashMap<>();
+    private final Map<String, Float> interceptedAt = new HashMap<>();
 
     public ServerScripts(Server serverInstance){
         this.serverInstance = serverInstance;
@@ -91,6 +106,7 @@ public class ServerScripts implements EveryFrameScript {
         if (!wasRunning) started();
 
         holdInteractionTargets();
+        checkInterceptions(amount);
         serverInstance.factionSync.advance(amount);
         serverInstance.markets.advance(amount);
 
@@ -164,6 +180,9 @@ public class ServerScripts implements EveryFrameScript {
         serverInstance.factionSync.stopped(); //nor in any player faction
         heldAt.clear();
         orbiting.clear(); //the players' fleets themselves are removed just below
+        pinnedAt.clear();
+        intercepts.clear();
+        interceptedAt.clear();
         hideOwnFleet(false);
         //a dedicated server kept copies of the players' fleets: they don't belong in its game
         List<CampaignFleetAPI> copies = new ArrayList<>();
@@ -209,25 +228,40 @@ public class ServerScripts implements EveryFrameScript {
      */
     private void holdInteractionTargets() {
         Set<String> held = new HashSet<>();
+        Set<String> pinned = new HashSet<>();
         for (Map.Entry<String, Server.Interaction> entry : serverInstance.interactions.entrySet()) {
             String clientId = entry.getKey();
             Server.Interaction interaction = entry.getValue();
             SectorEntityToken target = Global.getSector().getEntityById(interaction.target);
+            SectorEntityToken own = Global.getSector().getEntityById(clientId);
+            CampaignFleetAPI player = own instanceof CampaignFleetAPI ? (CampaignFleetAPI) own : null;
             if (target == null) continue; //gone (destroyed, despawned)
+            if (target.getOrbit() != null && !(target instanceof CampaignFleetAPI)) {
+                if (player != null) orbitWhileTalking(clientId, player, target, interaction);
+                continue;
+            }
             if (target instanceof CampaignFleetAPI) {
                 CampaignFleetAPI fleet = (CampaignFleetAPI) target;
-                if (fleet.isPlayerFleet() || fleet.hasTag("playerFleet")) continue; //players move themselves
-                held.add(interaction.target);
-                //where the player's game saw it (by their fleet, here too), or where it is
-                Vector2f at = heldAt.computeIfAbsent(interaction.target,
-                        id -> new Vector2f(interaction.seenAt != null ? interaction.seenAt : fleet.getLocation()));
-                fleet.setLocation(at.x, at.y);
-                fleet.getVelocity().set(0f, 0f);
-            } else if (target.getOrbit() != null) {
-                orbitWhileTalking(clientId, target);
+                if (!fleet.isPlayerFleet() && !fleet.hasTag("playerFleet")) { //players move themselves
+                    held.add(interaction.target);
+                    //where the player's game saw it (by their fleet, here too), or where it is
+                    Vector2f at = heldAt.computeIfAbsent(interaction.target,
+                            id -> new Vector2f(interaction.seenAt != null ? interaction.seenAt : fleet.getLocation()));
+                    fleet.setLocation(at.x, at.y);
+                    fleet.getVelocity().set(0f, 0f);
+                }
+            }
+            //the player's fleet stops where their game has it: it sends no movement during the dialog, and this
+            //copy would otherwise fly on to wherever it was last headed (an NPC fleet, a derelict...)
+            if (player != null) {
+                pinned.add(clientId);
+                Vector2f at = pinnedAt.computeIfAbsent(clientId,
+                        id -> new Vector2f(interaction.playerAt != null ? interaction.playerAt : player.getLocation()));
+                stop(player, at);
             }
         }
         heldAt.keySet().retainAll(held);
+        pinnedAt.keySet().retainAll(pinned);
 
         //players who aren't talking to what their fleet orbits any more: their game moves it again
         for (Iterator<Map.Entry<String, String>> it = orbiting.entrySet().iterator(); it.hasNext(); ) {
@@ -247,14 +281,79 @@ public class ServerScripts implements EveryFrameScript {
      * keeps their fleet by it (InteractionOrbit), sending no movement meanwhile, so this game's copy of their fleet
      * does the same, instead of standing still while the planet goes on and snapping to it afterwards.
      */
-    private void orbitWhileTalking(String clientId, SectorEntityToken target) {
-        SectorEntityToken copy = Global.getSector().getEntityById(clientId);
-        if (!(copy instanceof CampaignFleetAPI) || copy.getContainingLocation() != target.getContainingLocation()) return;
-        if (copy.getOrbitFocus() == target) return; //already
-        float angle = Misc.getAngleInDegrees(target.getLocation(), copy.getLocation());
-        float radius = Misc.getDistance(target.getLocation(), copy.getLocation());
-        copy.setCircularOrbit(target, angle, radius, 100000f); //practically standing still, as in their game
-        orbiting.put(clientId, target.getId());
+    private void orbitWhileTalking(String clientId, CampaignFleetAPI player, SectorEntityToken target, Server.Interaction interaction) {
+        if (player.getContainingLocation() != target.getContainingLocation()) return;
+        if (player.getOrbitFocus() != target) {
+            //by it as their game has them (the angle and distance it saw), wherever it is here
+            boolean seen = interaction.seenAt != null && interaction.playerAt != null;
+            Vector2f from = seen ? interaction.seenAt : target.getLocation();
+            Vector2f to = seen ? interaction.playerAt : player.getLocation();
+            float angle = Misc.getAngleInDegrees(from, to);
+            float radius = Misc.getDistance(from, to);
+            player.setCircularOrbit(target, angle, radius, 100000f); //practically standing still, as in their game
+            orbiting.put(clientId, target.getId());
+        }
+        //and headed nowhere: once the orbit lets go it stays put, rather than flying on to where it was headed
+        stop(player, player.getLocation());
+    }
+
+    /**
+     * NPC fleets that catch a player. Their AI chases players' fleets here (the world), but only the player's game
+     * can start the encounter, and its copy of the NPC fleet isn't chasing anyone. So when one this game's AI is
+     * pursuing reaches a player, their game is told to open the encounter, as vanilla does when it intercepts the
+     * player; both are held where they are at once (before they touch: this game must never fight it out between
+     * them itself) until the dialog opens there, which then holds them as any dialog does.
+     */
+    private void checkInterceptions(float amount) {
+        clock += amount;
+        //an interception their game didn't open (it had a dialog up, or never answered): let them go
+        for (Iterator<Map.Entry<String, Float>> it = interceptedAt.entrySet().iterator(); it.hasNext(); ) {
+            Map.Entry<String, Float> entry = it.next();
+            if (clock - entry.getValue() < INTERCEPT_ANSWER_TIME) continue;
+            Server.Interaction interaction = serverInstance.interactions.get(entry.getKey());
+            if (interaction != null && interaction == intercepts.get(entry.getKey())) serverInstance.interactions.remove(entry.getKey());
+            intercepts.remove(entry.getKey());
+            it.remove();
+        }
+        for (String clientId : serverInstance.worldClients().keySet()) {
+            if (serverInstance.interactions.containsKey(clientId)) continue; //in a dialog already
+            SectorEntityToken own = Global.getSector().getEntityById(clientId);
+            if (!(own instanceof CampaignFleetAPI) || own.getContainingLocation() == null) continue;
+            CampaignFleetAPI player = (CampaignFleetAPI) own;
+            for (CampaignFleetAPI fleet : player.getContainingLocation().getFleets()) {
+                if (fleet == player || fleet.isPlayerFleet() || fleet.hasTag("playerFleet")) continue;
+                if (!(fleet.getAI() instanceof ModularFleetAIAPI)) continue;
+                TacticalModulePlugin tactical = ((ModularFleetAIAPI) fleet.getAI()).getTacticalModule();
+                if (tactical == null || tactical.getTarget() != player) continue; //not chasing them
+                float reach = fleet.getRadius() + player.getRadius() + INTERCEPT_MARGIN;
+                if (Misc.getDistance(fleet.getLocation(), player.getLocation()) > reach) continue;
+                String pair = fleet.getId() + "|" + clientId;
+                Float last = lastIntercept.get(pair);
+                if (last != null && clock - last < INTERCEPT_COOLDOWN) continue; //they just had it out
+                lastIntercept.put(pair, clock);
+                Server.Interaction interaction = new Server.Interaction(fleet.getId(), new Vector2f(fleet.getLocation()), new Vector2f(player.getLocation()));
+                serverInstance.interactions.put(clientId, interaction);
+                intercepts.put(clientId, interaction);
+                interceptedAt.put(clientId, clock);
+                try {
+                    JSONObject packet = new JSONObject();
+                    packet.put("commandId", "intercepted");
+                    packet.put("fleetId", fleet.getId());
+                    serverInstance.sendTo(clientId, packet.toString());
+                    MultiplayerLog.log().info(fleet.getName() + " intercepted " + clientId);
+                } catch (Exception e) {
+                    MultiplayerLog.log().error("Couldn't tell " + clientId + " they're intercepted", e);
+                }
+                break;
+            }
+        }
+    }
+
+    /** A player's fleet stops here: no speed, and nowhere else to go. */
+    private static void stop(CampaignFleetAPI fleet, Vector2f at) {
+        if (fleet.getOrbit() == null) fleet.setLocation(at.x, at.y);
+        fleet.getVelocity().set(0f, 0f);
+        fleet.setMoveDestination(at.x, at.y);
     }
 
     private void hideOwnFleet(boolean hide) {

@@ -56,14 +56,19 @@ public class Server {
      */
     public final Map<String, Interaction> interactions = new ConcurrentHashMap<>();
 
-    /** What a player is in a dialog with (an NPC fleet, a planet...), and where their game saw it then (or null). */
+    /**
+     * What a player is in a dialog with (an NPC fleet, a planet...), where their game saw it then, and where their
+     * own fleet was (either null if their game didn't say).
+     */
     public static final class Interaction {
         public final String target;
         public final Vector2f seenAt;
+        public final Vector2f playerAt;
 
-        Interaction(String target, Vector2f seenAt) {
+        Interaction(String target, Vector2f seenAt, Vector2f playerAt) {
             this.target = target;
             this.seenAt = seenAt;
+            this.playerAt = playerAt;
         }
     }
     /** Each connected player's faction in this game and the others (client id -> mp_player_N), see PlayerFactions. */
@@ -295,7 +300,8 @@ public class Server {
                     String target = "paused".equals(commandId) ? json.optString("interactionTarget", null) : null;
                     if (target != null) {
                         Vector2f seenAt = json.has("targetX") ? new Vector2f((float) json.getDouble("targetX"), (float) json.getDouble("targetY")) : null;
-                        interactions.put(clientId, new Interaction(target, seenAt));
+                        Vector2f playerAt = json.has("selfX") ? new Vector2f((float) json.getDouble("selfX"), (float) json.getDouble("selfY")) : null;
+                        interactions.put(clientId, new Interaction(target, seenAt, playerAt));
                     } else {
                         interactions.remove(clientId);
                     }

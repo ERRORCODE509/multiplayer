@@ -31,6 +31,9 @@ public class PauseUtility {
                         packet.put("interactionTarget", target.getId());
                         packet.put("targetX", target.getLocation().x);
                         packet.put("targetY", target.getLocation().y);
+                        //and where we are: our fleet stops there in the server's game too (we send no movement meanwhile)
+                        packet.put("selfX", Global.getSector().getPlayerFleet().getLocation().x);
+                        packet.put("selfY", Global.getSector().getPlayerFleet().getLocation().y);
                     }
                     markets.dialogOpened(client, target); //at a market: the server's stock
                     if (!client.isSelfHosted) orbit.start(target); //it moves on while we talk: stay by it
