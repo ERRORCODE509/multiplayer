@@ -64,6 +64,9 @@ rm -rf "$S" && mkdir -p "$S/mod" && javac --release 17 -nowarn -encoding UTF-8 -
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
+- [ ] Losing your whole fleet while connected (`988f9b6`): if the game makes a new player fleet, the log says "Our
+      fleet is new (...)", and the others and the server keep seeing it (the server log has no repeated "No copy
+      of ...'s fleet"). If no such line appears, vanilla keeps the same fleet and nothing was needed.
 - [ ] Players list (`4866ae0`): the multiplayer window's right side lists who's connected, on the server instance
       and on each client (own name "(you)"), updated as players join, leave and rename.
 - [ ] No PvP (`7c8341b`): flying into another player's fleet opens "comes alongside ..., another player's" with only
