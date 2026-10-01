@@ -67,8 +67,9 @@ rm -rf "$S" && mkdir -p "$S/mod" && javac --release 17 -nowarn -encoding UTF-8 -
 - [ ] No PvP (`7c8341b`): flying into another player's fleet opens "comes alongside ..., another player's" with only
       Leave (both fleets shown), on a client and on the host ("host current game"); fighting an NPC fleet next to
       another player doesn't pull them in ("supporting your forces" / "joining the enemy" never names a player).
-- [ ] Smoothing (`7c8341b`): other players' and NPC fleets no longer jump when the sync corrects them; they glide
-      there in well under a second (over 500 units off they still jump). Jumps between locations still move them at once (with the flash).
+- [ ] Smoothing (`7c8341b`, `a614c32`): other players' and NPC fleets no longer jump when the sync corrects them;
+      they glide there in well under a second (over 500 units off they still jump). Jumps between locations still
+      move them at once (with the flash). Planets and stations no longer jump at the 10 s orbit resync either.
 - [ ] Closing the server (or losing the connection) while a client is in a dialog: the client's fleet name loses
       " [PAUSED]" (`a546ef8`); a save that has it loses it on loading.
 - [ ] Clock (`3ec8821`): a client's date no longer jumps an hour every few seconds (the log no longer says "Clock
