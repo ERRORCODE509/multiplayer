@@ -172,6 +172,17 @@ hyperspace gravity wells, factions shown in the intel tab only while connected.
   Needs a decision: turning RouteManager on in a client would also run every route in its own save (trade fleets,
   patrols...) and duplicate the world's fleets; the raid would have to run in the world (server) or only the raid's
   routes in the client.
+  How it works (API source): a raid is a FleetGroupIntel (GenericRaidFGI and subclasses: Persean League, Diktat,
+  TT mercenaries; made by the HostileActivity factors), a sector script (stripped on clients: it isn't a
+  BaseEventIntel) with a RouteManager route. RouteManager.spawnAndDespawn spawns its fleets (route.spawner
+  .spawnFleet) when the player is within SPAWN_DIST_LY 1.6 of route.getInterpolatedHyperLocation(), despawns far
+  and unseen; far from the player, the FGI resolves along its route without fleets. Target:
+  GenericRaidFGI.getParams().raidParams.where (StarSystemAPI).
+  Proposal (owner's game runs its own raids): SectorScriptsUtility keeps FleetGroupIntel scripts whose target
+  system has a colony of this player; a small runner does RouteManager's part for just their routes (advance the
+  route, spawn within 1.6 LY, despawn as vanilla). The raiders are local fleets of the owner's game with a real AI,
+  raiding the real colony. Limits: other players don't see them (not synced; later the owner could send them like
+  the server sends NPC fleets); a raid on a colony whose owner is offline doesn't happen until they're back.
 - Visitors' prices at a player's colony come from their own game's copy (out of its economy): may differ.
 - Salvage loot isn't shared, and a later battle adding to an existing field doesn't update the others' copies.
 - Clock: a client stays up to 5 game minutes (the dead band) behind the server, plus the network delay.
