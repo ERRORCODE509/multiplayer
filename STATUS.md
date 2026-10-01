@@ -89,11 +89,11 @@ Unlicense, as its developer stated (also in `LICENSE`).
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
-- [ ] Fleet copies, check with the agent bridge: `ss_diff fleets` around the client keys every fleet (no duplicate
-      ids: one makes it compare by index), and rosters list in the same order (`edd4467`). A client with duplicates
-      from before logs "Removed N duplicate fleet copies". The duplicate fix is `82c4d6c` (pushed under the wrong
-      message, "STATUS.md: fleet copy fixes to test"): a client asked for an unknown fleet with every update and
-      spawned a copy per answer; now at most every 2 s, never a second copy, and duplicates are removed.
+- [x] Fleet copies (`edd4467`, `82c4d6c`): checked with the agent bridge. Around the client every fleet keys by id
+      (no duplicates), rosters in the same order, positions within 60; the only fleets missing on the client are the
+      server's out of its sensor range. A client's fleet and its copy on the server: 21-29 units apart at 230 units/s
+      (the copy ~0.1 s ahead, inside the dead band). (`82c4d6c` went out under the wrong message, "STATUS.md: fleet
+      copy fixes to test".)
 - [ ] Other players' fleets (`64701e8`): seen on a client from anywhere in the same star system (not only within
       sensor range); gone from the client's game after disconnecting (and from a save made while connected, once
       loaded: the log says "Removed N other players' fleets saved with this game").
