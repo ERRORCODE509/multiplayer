@@ -44,16 +44,25 @@ rm -rf "$S" && mkdir -p "$S/mod" && javac --release 17 -nowarn -encoding UTF-8 -
 MIT (`LICENSE`, ERROR_CODE 509); the original project's code (MatlabMaster, moi75ts/multiplayer) stays under the
 Unlicense, as its developer stated (also in `LICENSE`).
 
-## Dev tool: starsector-mcp (not set up yet)
-- AyoKeito/starsector-coop's MCP server (CC BY-NC 4.0, theirs: never commit it; `.gitignore` has
-  `tools/starsector-mcp/` and `.mcp.json`). Its files are in `tools/starsector-mcp/` (local only). Don't
-  read or use the coop mod's own code (other license; the user's call).
-- Not installed: running `npm ci` (third-party code) needs the user's go-ahead. Then register it in a `.mcp.json`
-  (`node <path>/tools/starsector-mcp/index.js`).
-- It's only a client: it talks newline-delimited JSON to a debug bridge inside the game (their mod's, ports 7801
-  "host" / 7802 "guest", opened by a -D switch). Our mod has none: using it here means writing our own bridge that
-  answers the same requests (status, fleets, cargo, markets...), off unless the game is started with a switch.
-  Waiting on the user's decision.
+## Dev tools: starsector-mcp + agent bridge (local only)
+- Everything under `tools/` is gitignored and never published (keeps the repo MIT-only): don't commit it, and
+  don't read or use the coop mod's own code (AyoKeito/starsector-coop; other license, the user's call).
+- `tools/starsector-mcp/`: that project's MCP server (only its folder, as downloaded). Registered in
+  `D:\Software\starsector_modding\.mcp.json` as `starsector`. **The user must run `npm ci` in it once** (running
+  third-party code needs their go-ahead), then approve the server when Claude Code starts. Tools: `ss_status`,
+  `ss_dump`, `ss_diff`, `ss_act`, `ss_advance_days` (instance "host" = port 7801, "guest" = 7802).
+- `tools/agent-bridge/`: our own bridge for it, a separate dev mod (`mp_agent_bridge`, depends on the multiplayer
+  mod), linked as `mods\mp-agent-bridge` and enabled in `enabled_mods.json`. Build with
+  `sh tools/agent-bridge/build.sh` (after the main jar). Listens on 127.0.0.1: 7801 in the server instance, 7802 in
+  a player's game (`-Dmultiplayer.bridge.port=N` overrides). Newline JSON, `{id, cmd, args}` ->
+  `{id, ok, data | error}`, run a few per frame on the game thread.
+  Reads: `status` (role HOST/GUEST/NONE, clock, player fleet, multiplayer block: players, client id, faction),
+  `fleets` ({locationId?|"all", near?}), `cargo`, `markets`, `market` ({marketId}, no restock), `entities`
+  ({locationId?}: orbit angles), `screen`. Actions: `pause` (connected games unpause themselves), `teleport`,
+  `give`, `addship`, `setcr`, `ability`, `rep` ({factionId, value}), `mark` ({text} -> "[AGENT MARK]" in the log),
+  `memory`. Not tested in-game yet.
+- Fleet ids are the same in every game of a session, so `ss_diff(what: "fleets", args: {near: 3000})` compares the
+  server's and a client's view around the client's fleet (the server has every fleet, a client only nearby ones).
 
 ## Architecture (what's where)
 - The **server's game is the only authority on the world** (NPC fleets, clock, markets, economy); each **player's

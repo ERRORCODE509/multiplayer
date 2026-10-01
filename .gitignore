@@ -197,6 +197,6 @@ nbdist/
 launcher/build/
 agent/build/
 
-# local dev tools, never published (other licenses): starsector-mcp (see STATUS.md)
-tools/starsector-mcp/
+# local dev tools, never published: starsector-mcp and the agent bridge mod (see STATUS.md)
+tools/
 .mcp.json
