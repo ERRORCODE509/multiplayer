@@ -110,7 +110,7 @@ public class ClientScripts implements EveryFrameScript {
             factionSent = null;
             coloniesSent = null;
             debrisKnown.clear();
-            HostileAwareTactics.unwrapAll();
+            CopyAI.removeAll();
             if (client != null && client.wasPaused) { //left in a dialog: never told the server, nobody to tell now
                 client.wasPaused = false;
                 PauseUtility.clearPausedName();
@@ -128,14 +128,14 @@ public class ClientScripts implements EveryFrameScript {
             factionSent = null; //a new server knows nothing of us yet
             coloniesSent = null;
             debrisKnown.clear();
-            HostileAwareTactics.unwrapAll();
+            CopyAI.removeAll();
         }
         factionTimer += amount;
         if (factionSent == null || factionTimer >= PlayerFactions.RELATIONS_INTERVAL) {
             factionTimer = 0f;
             sendOwnFaction();
             if (!client.isSelfHosted) {
-                markHostiles();
+                CopyAI.installAround(Global.getSector().getPlayerFleet()); //the world's fleets decide as vanilla's
                 syncDebris();
                 showOtherPlayers();
                 removeDuplicateCopies();
@@ -187,7 +187,7 @@ public class ClientScripts implements EveryFrameScript {
      */
     public void restoreSectorScripts() {
         sectorScriptsUtility.restoreScripts();
-        HostileAwareTactics.unwrapAll(); //never in a save: put back within a second
+        CopyAI.removeAll(); //never in a save: put back within a second
     }
 
     /** A new game was loaded: any scripts saved from the previous game belong to a sector that is gone. */
@@ -458,7 +458,9 @@ public class ClientScripts implements EveryFrameScript {
                 }
             } else if ("ADDED".equals(action) && !(existing instanceof CampaignFleetAPI)) {
                 //the full fleet is in the message: no need to ask for a snapshot
-                FleetSerializer.unSerializeFleet(change.getJSONObject("value"), Global.getFactory().createEmptyFleet(Faction.NO_FACTION, true));
+                CampaignFleetAPI copy = Global.getFactory().createEmptyFleet(Faction.NO_FACTION, true);
+                FleetSerializer.unSerializeFleet(change.getJSONObject("value"), copy);
+                CopyAI.install(copy);
             }
             return;
         }
@@ -557,18 +559,6 @@ public class ClientScripts implements EveryFrameScript {
     }
 
     /**
-     * Whether a fleet is hostile to us is its AI's call (CampaignFleet.isHostileTo asks it), and the copies of the
-     * world's NPC fleets here don't think for themselves (the server moves them), so they kept showing as they were
-     * when they arrived, neutral after we'd made their faction hostile. The NPC fleets around us whose faction is
-     * hostile to us now (our reputation: this game's) are hostile to us: see HostileAwareTactics (wrapped within a
-     * second, never in a save).
-     */
-    private void markHostiles() {
-        //the AI's tactical module decides (a memory flag isn't asked): theirs is wrapped, see HostileAwareTactics
-        HostileAwareTactics.wrapAround(Global.getSector().getPlayerFleet());
-    }
-
-    /**
      * The other players' fleets are seen from anywhere in the same location: there's no fighting them (see
      * PlayerEncounters), and players play together. Only in a client's game, where the NPC fleets don't think for
      * themselves; in the server's game they'd see them from everywhere too. Gone with the copies on leaving.
@@ -636,7 +626,9 @@ public class ClientScripts implements EveryFrameScript {
         String id = fleet.getString("id");
         askedFor.remove(id);
         if (isOwnFleet(id) || Global.getSector().getEntityById(id) instanceof CampaignFleetAPI) return false;
-        FleetSerializer.unSerializeFleet(fleet, Global.getFactory().createEmptyFleet(Faction.NO_FACTION, true));
+        CampaignFleetAPI copy = Global.getFactory().createEmptyFleet(Faction.NO_FACTION, true);
+        FleetSerializer.unSerializeFleet(fleet, copy);
+        CopyAI.install(copy);
         return true;
     }
 
