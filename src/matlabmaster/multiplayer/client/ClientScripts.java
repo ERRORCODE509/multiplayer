@@ -2,11 +2,14 @@ package matlabmaster.multiplayer.client;
 
 import com.fs.starfarer.api.EveryFrameScript;
 import com.fs.starfarer.api.Global;
+import com.fs.starfarer.api.campaign.BaseCampaignEventListener;
+import com.fs.starfarer.api.campaign.BattleAPI;
 import com.fs.starfarer.api.campaign.CampaignFleetAPI;
 import com.fs.starfarer.api.campaign.LocationAPI;
 import com.fs.starfarer.api.campaign.SectorEntityToken;
 import com.fs.starfarer.campaign.Faction;
 import matlabmaster.multiplayer.MultiplayerLog;
+import matlabmaster.multiplayer.updates.BattleSync;
 import matlabmaster.multiplayer.updates.FleetSync;
 import matlabmaster.multiplayer.updates.WorldSync;
 import matlabmaster.multiplayer.utils.*;
@@ -27,6 +30,8 @@ public class ClientScripts implements EveryFrameScript {
     private static final float ORBIT_RESYNC_SECONDS = 10f;
     private float orbitTimer = 0f;
     private final ClientMarkets markets = new ClientMarkets();
+    /** Keeps our fleet by what we're talking to while the world moves on (see InteractionOrbit). */
+    private final InteractionOrbit interactionOrbit = new InteractionOrbit();
     /** Our reputation and faction as last sent to the server (null: not since joining), see sendOwnFaction. */
     private String factionSent = null;
     private float factionTimer = 0f;
@@ -75,6 +80,7 @@ public class ClientScripts implements EveryFrameScript {
 
     @Override
     public void advance(float amount) {
+        interactionOrbit.advance(); //connected or not: an orbit of ours lets go when the player moves
         if (client == null || !client.isConnected()) {
             //put back any sector scripts taken out while we were not the authority, so they are not lost
             sectorScriptsUtility.restoreScripts();
@@ -107,7 +113,7 @@ public class ClientScripts implements EveryFrameScript {
 
         //handle the game pausing , disable classic in game pause
         //if the game is in a dialog inform the server
-        PauseUtility.clientPauseUtility(client, fleetSync, markets);
+        PauseUtility.clientPauseUtility(client, fleetSync, markets, interactionOrbit);
         // --- 1. process received message every frame ---
         // they are processed every frame to limit lag
         while (!messageQueue.isEmpty()) {
@@ -150,6 +156,25 @@ public class ClientScripts implements EveryFrameScript {
     /** A new game was loaded: any scripts saved from the previous game belong to a sector that is gone. */
     public void onGameLoad() {
         sectorScriptsUtility.forgetScripts();
+        interactionOrbit.forget();
+        //our battles against the world's NPC fleets: the server's must lose the same ships (transient: not in the save)
+        Global.getSector().addTransientListener(new BaseCampaignEventListener(false) {
+            @Override
+            public void reportBattleFinished(CampaignFleetAPI primaryWinner, BattleAPI battle) {
+                if (!client.isConnected() || client.isSelfHosted || battle == null || !battle.isPlayerInvolved()) return;
+                try {
+                    JSONObject result = BattleSync.describe(battle);
+                    if (result.length() == 0) return;
+                    JSONObject packet = new JSONObject();
+                    packet.put("commandId", "battleResult");
+                    packet.put("result", result);
+                    client.send(packet.toString());
+                    MultiplayerLog.log().info("Sent the result of our battle (" + result.length() + " NPC fleets) to the server");
+                } catch (Exception e) {
+                    MultiplayerLog.log().error("Couldn't send our battle's result to the server", e);
+                }
+            }
+        });
     }
 
     /**

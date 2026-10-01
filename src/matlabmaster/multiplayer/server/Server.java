@@ -9,6 +9,7 @@ import java.util.concurrent.*;
 import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.econ.MarketAPI;
 import com.fs.starfarer.api.impl.campaign.ids.Factions;
+import matlabmaster.multiplayer.updates.BattleSync;
 import matlabmaster.multiplayer.updates.MarketSync;
 import matlabmaster.multiplayer.utils.PlayerFactions;
 import matlabmaster.multiplayer.MultiplayerLog;
@@ -328,6 +329,17 @@ public class Server {
                     //what a player bought and sold there
                     JSONObject trade = json.getJSONObject("trade");
                     gameThreadTasks.add(() -> markets.trade(clientId, trade));
+                    break;
+                case "battleResult":
+                    //a player's battle against the world's NPC fleets: they lose the same ships here
+                    JSONObject result = json.getJSONObject("result");
+                    gameThreadTasks.add(() -> {
+                        try {
+                            BattleSync.apply(clientId, result);
+                        } catch (Exception e) {
+                            MultiplayerLog.log().error("Failed to apply a battle of " + clientId, e);
+                        }
+                    });
                     break;
                 case "colonyStock":
                     //a player's colony's stock, from their game (it holds the real one)

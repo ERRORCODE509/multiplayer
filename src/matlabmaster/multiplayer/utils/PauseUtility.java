@@ -7,13 +7,14 @@ import com.fs.starfarer.api.campaign.SectorEntityToken;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.client.Client;
 import matlabmaster.multiplayer.client.ClientMarkets;
+import matlabmaster.multiplayer.client.InteractionOrbit;
 import matlabmaster.multiplayer.updates.FleetSync;
 import matlabmaster.multiplayer.updates.WorldSync;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 public class PauseUtility {
-    public static void clientPauseUtility(Client client, FleetSync fleetSync, ClientMarkets markets){
+    public static void clientPauseUtility(Client client, FleetSync fleetSync, ClientMarkets markets, InteractionOrbit orbit){
         try {
             if(Global.getSector().isPaused()){
                 if(!Global.getSector().getCampaignUI().isShowingDialog()){
@@ -29,6 +30,7 @@ public class PauseUtility {
                         packet.put("interactionTarget", target.getId());
                     }
                     markets.dialogOpened(client, target); //at a market: the server's stock
+                    if (!client.isSelfHosted) orbit.start(target); //it moves on while we talk: stay by it
 
                     //name update
                     String fleetName = Global.getSector().getPlayerFleet().getName();
