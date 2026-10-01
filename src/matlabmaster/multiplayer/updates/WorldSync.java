@@ -33,9 +33,6 @@ public class WorldSync {
             //wells, which follow their system's planets), and a client rebuilding that as a circle put them all
             //on top of their star
             if(entity.getOrbit() != null && entity.getCircularOrbitRadius() > 0f && !(entity instanceof AsteroidAPI) && !Objects.equals(entity.getCustomEntityType(), "orbital_junk")){
-                if(Objects.equals(entity.getName(), "Habitat")){
-                    System.out.println(entity.getCustomEntityType());
-                }
                 if(!(entity instanceof CampaignFleetAPI)){
                     try {
                         JSONObject serializedEntity = WorldSerializer.serializeOrbit(entity);

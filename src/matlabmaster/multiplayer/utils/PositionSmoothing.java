@@ -1,6 +1,8 @@
 package matlabmaster.multiplayer.utils;
 
 import com.fs.starfarer.api.campaign.CampaignFleetAPI;
+import com.fs.starfarer.api.campaign.SectorEntityToken;
+import com.fs.starfarer.api.util.Misc;
 import org.lwjgl.util.vector.Vector2f;
 
 import java.util.IdentityHashMap;
@@ -12,6 +14,7 @@ import java.util.Map;
  * position its game sends only corrects it when they've drifted apart. That correction used to put it there at
  * once, a visible jump; now it's made up over a fraction of a second, on top of its own movement. Far off (a
  * teleport, a lost update) it's still put there at once. Every game: players' and the server's copies alike.
+ * The same for planets and stations when their orbits are resynced (clients only).
  */
 public class PositionSmoothing {
     /** Closer than this a copy is left alone (as before): about what the network delay puts it behind. */
@@ -23,6 +26,12 @@ public class PositionSmoothing {
 
     /** What's still to be made up, per copy (game thread only). */
     private static final Map<CampaignFleetAPI, Vector2f> offsets = new IdentityHashMap<>();
+    /** Orbits (planets, stations...) are resynced every few seconds: closer than this (degrees) they're left alone. */
+    private static final float ORBIT_DEADBAND = 0.05f;
+    /** Further than this (degrees) an orbit is put there at once. */
+    private static final float ORBIT_SNAP = 20f;
+    /** The degrees still to be made up, per orbiting entity (game thread only). */
+    private static final Map<SectorEntityToken, Float> orbitOffsets = new IdentityHashMap<>();
 
     /** Where a copy's game has it on one axis (the other NaN): from a fleet update. */
     public static void toward(CampaignFleetAPI fleet, float x, float y) {
@@ -45,6 +54,22 @@ public class PositionSmoothing {
         return error;
     }
 
+    /**
+     * Where the server has something on its circular orbit: it's moved there along the orbit, over a fraction of a
+     * second like a fleet, rather than jumping (a degree on a wide orbit is a hundred units and more).
+     */
+    public static void orbitToward(SectorEntityToken entity, float angle) {
+        float delta = Misc.getAngleDiff(entity.getCircularOrbitAngle(), angle) * Misc.getClosestTurnDirection(entity.getCircularOrbitAngle(), angle);
+        if (Math.abs(delta) <= ORBIT_DEADBAND) {
+            orbitOffsets.remove(entity);
+        } else if (Math.abs(delta) > ORBIT_SNAP) {
+            orbitOffsets.remove(entity);
+            entity.setCircularOrbitAngle(angle);
+        } else {
+            orbitOffsets.put(entity, delta);
+        }
+    }
+
     /** A copy moved to another location (or was replaced): nothing left to make up. */
     public static void forget(CampaignFleetAPI fleet) {
         offsets.remove(fleet);
@@ -53,12 +78,26 @@ public class PositionSmoothing {
     /** A new game was loaded: the copies of the last one are gone. */
     public static void clear() {
         offsets.clear();
+        orbitOffsets.clear();
     }
 
     /** Every frame (ClientScripts, which every game runs). */
     public static void advance(float amount) {
-        if (offsets.isEmpty()) return;
         float share = Math.min(1f, RATE * amount);
+        for (Iterator<Map.Entry<SectorEntityToken, Float>> it = orbitOffsets.entrySet().iterator(); it.hasNext(); ) {
+            Map.Entry<SectorEntityToken, Float> entry = it.next();
+            SectorEntityToken entity = entry.getKey();
+            if (entity.getContainingLocation() == null || entity.getOrbit() == null) { //gone, or let go of its orbit
+                it.remove();
+                continue;
+            }
+            float step = entry.getValue() * share;
+            entity.setCircularOrbitAngle(entity.getCircularOrbitAngle() + step);
+            float left = entry.getValue() - step;
+            if (Math.abs(left) < ORBIT_DEADBAND) it.remove();
+            else entry.setValue(left);
+        }
+        if (offsets.isEmpty()) return;
         for (Iterator<Map.Entry<CampaignFleetAPI, Vector2f>> it = offsets.entrySet().iterator(); it.hasNext(); ) {
             Map.Entry<CampaignFleetAPI, Vector2f> entry = it.next();
             CampaignFleetAPI fleet = entry.getKey();

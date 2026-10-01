@@ -20,10 +20,12 @@ public class WorldSerializer {
     public static void unSerializeOrbit(JSONObject orbit) throws JSONException {
         SectorEntityToken entity = Global.getSector().getEntityById(orbit.getString("id"));
         SectorEntityToken orbitFocus = Global.getSector().getEntityById(orbit.getString("orbitFocusId"));
+        if (entity == null || orbitFocus == null) return; //not in this game (yet)
         if (entity.getOrbit() != null && entity.getOrbitFocus() == orbitFocus) {
-            //same orbit as the server's, only further along: move it there and keep the orbit itself (its kind, like
-            //pointing down or spinning, and its speed). Does nothing for orbits that aren't circular
-            entity.setCircularOrbitAngle((float) orbit.getDouble("circularOrbitAngle"));
+            //same orbit as the server's, only further along: move it there (gradually, see PositionSmoothing) and
+            //keep the orbit itself (its kind, like pointing down or spinning, and its speed). Does nothing for
+            //orbits that aren't circular
+            PositionSmoothing.orbitToward(entity, (float) orbit.getDouble("circularOrbitAngle"));
             return;
         }
         entity.setCircularOrbit(orbitFocus,((float) orbit.getDouble("circularOrbitAngle")),((float) orbit.getDouble("circularOrbitRadius")),((float) orbit.getDouble("circularOrbitPeriod")));
