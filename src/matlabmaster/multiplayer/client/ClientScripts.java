@@ -15,6 +15,7 @@ import matlabmaster.multiplayer.updates.DebrisSync;
 import matlabmaster.multiplayer.updates.FleetSync;
 import matlabmaster.multiplayer.updates.WorldSync;
 import matlabmaster.multiplayer.utils.*;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.Arrays;
@@ -248,9 +249,23 @@ public class ClientScripts implements EveryFrameScript {
                     break;
                 case "playerLeft":
                     FleetHelper.removeFleetById(message.getString("id"));
+                    client.players.remove(message.getString("id"));
+                    client.showPlayers();
                     MultiplayerLog.log().info("[LEFT] " + message.optString("name", message.getString("id")) + " left the game");
                     break;
+                case "players": {
+                    //who's here, on joining (us too); the window lists them
+                    JSONArray players = message.getJSONArray("players");
+                    client.players.clear();
+                    for (int p = 0; p < players.length(); p++) {
+                        client.players.put(players.getJSONObject(p).getString("id"), players.getJSONObject(p).getString("name"));
+                    }
+                    client.showPlayers();
+                    break;
+                }
                 case "playerJoined":
+                    client.players.put(message.getString("id"), message.optString("name", message.getString("id")));
+                    client.showPlayers();
                     MultiplayerLog.log().info("[JOINED] " + message.optString("name", message.getString("id")) + " joined the game");
                     break;
                 case "debrisFields": {
@@ -281,6 +296,8 @@ public class ClientScripts implements EveryFrameScript {
                     if (!client.isSelfHosted) DebrisSync.remove(message.getString("id"));
                     break;
                 case "playerRenamed":
+                    client.players.put(message.getString("id"), message.getString("name"));
+                    client.showPlayers();
                     MultiplayerLog.log().info(message.optString("before") + " is now " + message.getString("name"));
                     break;
                 case "globalFleetsUpdate":
@@ -459,6 +476,10 @@ public class ClientScripts implements EveryFrameScript {
             if (text.equals(factionSent)) return;
             client.send(text);
             factionSent = text;
+            //our own name in the window's list (the server tells only the others when we're renamed)
+            if (client.players.containsKey(client.clientId) && !PlayerIdentity.name().equals(client.players.put(client.clientId, PlayerIdentity.name()))) {
+                client.showPlayers();
+            }
             if (reputationSent != null) { //what changed since the last time (on joining it's all of it)
                 double highest = 0;
                 for (Iterator<?> it = reputation.keys(); it.hasNext(); ) {

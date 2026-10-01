@@ -41,6 +41,18 @@ public class Client {
     public String clientId;
     /** Our faction in the server's game and the other players' (mp_player_N), from its reply to our hello; see PlayerFactions. */
     public String faction;
+    /** Who's connected (client id -> name), from the server, for the window's list; see showPlayers. */
+    public final java.util.Map<String, String> players = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** The window's list of who's connected (we're marked as such). The host's own window: the server shows it. */
+    public void showPlayers() {
+        if (ui == null || isSelfHosted) return;
+        java.util.List<String> names = new java.util.ArrayList<>();
+        for (java.util.Map.Entry<String, String> player : players.entrySet()) {
+            names.add(player.getKey().equals(clientId) ? player.getValue() + " (you)" : player.getValue());
+        }
+        ui.setPlayers(isConnected ? names : null);
+    }
 
     public interface ClientListener {
         void onDisconnected();
@@ -211,8 +223,11 @@ public class Client {
 
     private void handleDisconnect() {
         if (isConnected) {
+            boolean selfHosted = isSelfHosted;
             isSelfHosted = false;
             isConnected = false;
+            players.clear();
+            if (!selfHosted) showPlayers(); //the host's window shows the server's list
 
 
             joinPending = false;

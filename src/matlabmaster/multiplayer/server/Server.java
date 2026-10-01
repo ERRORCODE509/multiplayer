@@ -13,6 +13,8 @@ import matlabmaster.multiplayer.updates.BattleSync;
 import matlabmaster.multiplayer.updates.MarketSync;
 import matlabmaster.multiplayer.utils.PlayerFactions;
 import matlabmaster.multiplayer.MultiplayerLog;
+import matlabmaster.multiplayer.MultiplayerModPlugin;
+import matlabmaster.multiplayer.ui.UI;
 import matlabmaster.multiplayer.UserError;
 import matlabmaster.multiplayer.utils.CompatibilityUtility;
 import matlabmaster.multiplayer.utils.FleetHelper;
@@ -88,6 +90,7 @@ public class Server {
     public void renamed(String clientId, String name) {
         String before = clientNames.put(clientId, name);
         if (name.equals(before)) return;
+        showPlayers();
         String playerId = clientPlayers.get(clientId);
         if (playerId != null) registry.setName(playerId, name);
         MultiplayerLog.log().info(before + " is now " + name);
@@ -241,6 +244,8 @@ public class Server {
             if (threadPool != null) threadPool.shutdownNow();
 
             MultiplayerLog.log().info("SERVER STOPPED.");
+            clientNames.clear();
+            showPlayers();
 
             if (listener != null) {
                 listener.onServerStopped();
@@ -439,6 +444,13 @@ public class Server {
         reply.put("faction", faction);
         sendTo(clientId, reply.toString());
         clientNames.put(clientId, name);
+        showPlayers();
+        //who's here already (themselves too), for their window's list; later ones come as playerJoined
+        JSONArray players = new JSONArray();
+        for (Map.Entry<String, String> player : clientNames.entrySet()) {
+            players.put(new JSONObject().put("id", player.getKey()).put("name", player.getValue()));
+        }
+        sendTo(clientId, new JSONObject().put("commandId", "players").put("players", players).toString());
         MultiplayerLog.log().info("[JOINED] " + name + " (" + clientId + ", player " + playerId + "), faction " + faction);
         JSONObject joined = new JSONObject();
         joined.put("commandId", "playerJoined");
@@ -446,6 +458,12 @@ public class Server {
         joined.put("name", name);
         broadcastExcept(clientId, joined.toString());
         markets.deliverQueuedTrades(clientId, playerId); //visitors' trades at their colonies while they were away
+    }
+
+    /** Who's connected, in this game's multiplayer window (null once it stops hosting). */
+    private void showPlayers() {
+        UI ui = MultiplayerModPlugin.getUI();
+        if (ui != null) ui.setPlayers(isRunning ? new ArrayList<>(clientNames.values()) : null);
     }
 
     /** A player's fleet data (their fleet, its officers, or a diff) with their "player" faction made their player faction. */
@@ -582,6 +600,7 @@ public class Server {
                     MultiplayerLog.log().error("Failed to broadcast playerLeft of leaving player", e);
                 }
                 clientNames.remove(clientId);
+                showPlayers();
             }
         }
 

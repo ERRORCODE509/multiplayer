@@ -21,6 +21,8 @@ public class UI extends JFrame {
     private JTextField portField;
     private JComboBox<String> modeSelector;
     private JLabel serverTimeLabel;
+    private JLabel playersLabel;
+    private final DefaultListModel<String> playersModel = new DefaultListModel<>();
 
     private final Server server;
     private final Client client;
@@ -61,7 +63,7 @@ public class UI extends JFrame {
 
         setTitle("Starsector Multiplayer");
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-        setSize(750, 550);
+        setSize(900, 550);
         setLocationRelativeTo(null);
 
         JPanel mainPanel = new JPanel(new BorderLayout(10, 10));
@@ -95,6 +97,18 @@ public class UI extends JFrame {
         logArea.setForeground(new Color(139, 233, 253));
         JScrollPane scroll = new JScrollPane(logArea);
 
+        // --- WHO'S CONNECTED ---
+        JPanel playersPanel = new JPanel(new BorderLayout(0, 5));
+        playersPanel.setOpaque(false);
+        playersPanel.setPreferredSize(new Dimension(170, 0));
+        playersLabel = new JLabel("Players: -");
+        playersLabel.setForeground(new Color(139, 233, 253));
+        JList<String> playersList = new JList<>(playersModel);
+        playersList.setBackground(new Color(20, 20, 25));
+        playersList.setForeground(new Color(139, 233, 253));
+        playersPanel.add(playersLabel, BorderLayout.NORTH);
+        playersPanel.add(new JScrollPane(playersList), BorderLayout.CENTER);
+
         // --- ZONE DES BOUTONS (SUD) ---
         JPanel buttonPanel = new JPanel(new GridLayout(1, 0, 10, 0));
         buttonPanel.setOpaque(false);
@@ -116,6 +130,7 @@ public class UI extends JFrame {
 
         mainPanel.add(configPanel, BorderLayout.NORTH);
         mainPanel.add(scroll, BorderLayout.CENTER);
+        mainPanel.add(playersPanel, BorderLayout.EAST);
         mainPanel.add(buttonPanel, BorderLayout.SOUTH);
 
         add(mainPanel);
@@ -267,6 +282,17 @@ public class UI extends JFrame {
         SwingUtilities.invokeLater(() -> {
             String text = serverTimeLabel.getText().replace(" (paused by the host)", "");
             serverTimeLabel.setText(paused ? text + " (paused by the host)" : text);
+        });
+    }
+
+    /** Who's connected, by name (any thread); null when connected to nothing. */
+    public void setPlayers(java.util.Collection<String> names) {
+        java.util.List<String> sorted = names == null ? new java.util.ArrayList<>() : new java.util.ArrayList<>(names);
+        sorted.sort(String.CASE_INSENSITIVE_ORDER);
+        SwingUtilities.invokeLater(() -> {
+            playersModel.clear();
+            for (String name : sorted) playersModel.addElement(name);
+            playersLabel.setText(names == null ? "Players: -" : "Players: " + sorted.size());
         });
     }
 
