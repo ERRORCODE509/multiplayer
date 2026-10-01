@@ -60,8 +60,8 @@ Unlicense, as its developer stated (also in `LICENSE`).
   `fleets` ({locationId?|"all", near?}), `cargo`, `markets`, `market` ({marketId}, no restock), `entities`
   ({locationId?}: orbit angles), `screen`. Actions: `pause` (connected games unpause themselves), `teleport`,
   `give`, `addship`, `setcr`, `ability`, `rep` ({factionId, value}), `mark` ({text} -> "[AGENT MARK]" in the log),
-  `memory`. Works in-game (status, fleets, entities, ss_diff checked). Pending rebuild (jar locked while the games
-  ran): `entities` skips asteroids (each game has its own, with their own ids).
+  `memory`. Works in-game (status, fleets, entities, ss_diff checked). `entities` skips asteroids: they're never
+  synced (each game's belts and fields make their own, with their own ids).
 - Fleet ids are the same in every game of a session, so `ss_diff(what: "fleets", args: {near: 3000})` compares the
   server's and a client's view around the client's fleet (the server has every fleet, a client only nearby ones).
 

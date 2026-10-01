@@ -4,7 +4,6 @@ import com.fs.starfarer.api.campaign.AsteroidAPI;
 import com.fs.starfarer.api.campaign.CampaignFleetAPI;
 import com.fs.starfarer.api.campaign.LocationAPI;
 import com.fs.starfarer.api.campaign.SectorEntityToken;
-import com.fs.starfarer.combat.entities.terrain.Asteroid;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.client.Client;
 import matlabmaster.multiplayer.utils.WorldSerializer;
@@ -29,6 +28,7 @@ public class WorldSync {
         List<SectorEntityToken> allEntities = location.getAllEntities();
         JSONObject orbits = new JSONObject();
         for(SectorEntityToken entity : allEntities){
+            //asteroids aren't sent: each game has its own (its belts and fields make them), of no consequence
             //only circular orbits: the game reports a radius of 0 for any other kind (like the hyperspace gravity
             //wells, which follow their system's planets), and a client rebuilding that as a circle put them all
             //on top of their star
