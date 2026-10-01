@@ -40,6 +40,21 @@ rm -rf "$S" && mkdir -p "$S/mod" && javac --release 17 -nowarn -encoding UTF-8 -
   History rewrites (filter-branch, force push) are blocked by the permission classifier: don't.
 - Code style: comments say why, in plain sentences, at the density of the surrounding code; no new docs files.
 
+## License
+MIT (`LICENSE`, ERROR_CODE 509); the original project's code (MatlabMaster, moi75ts/multiplayer) stays under the
+Unlicense, as its developer stated (also in `LICENSE`).
+
+## Dev tool: starsector-mcp (not set up yet)
+- AyoKeito/starsector-coop's MCP server (CC BY-NC 4.0, theirs: never commit it; `.gitignore` has
+  `tools/starsector-mcp/` and `.mcp.json`). Its files are in `tools/starsector-mcp/` with their license. Don't
+  read or use the coop mod's own code (other license; the user's call).
+- Not installed: running `npm ci` (third-party code) needs the user's go-ahead. Then register it in a `.mcp.json`
+  (`node <path>/tools/starsector-mcp/index.js`).
+- It's only a client: it talks newline-delimited JSON to a debug bridge inside the game (their mod's, ports 7801
+  "host" / 7802 "guest", opened by a -D switch). Our mod has none: using it here means writing our own bridge that
+  answers the same requests (status, fleets, cargo, markets...), off unless the game is started with a switch.
+  Waiting on the user's decision.
+
 ## Architecture (what's where)
 - The **server's game is the only authority on the world** (NPC fleets, clock, markets, economy); each **player's
   game is the authority on their own fleet, reputation and colonies**. Clients strip sector scripts while connected
