@@ -31,9 +31,26 @@ public class NearestPlayerAgent {
         if (args != null && args.startsWith("classes=")) {
             classes = new HashSet<>(Arrays.asList(args.substring("classes=".length()).split(";")));
         }
-        inst.addTransformer(new Transformer(classes));
+        //Everything has to be loaded before the transformer is installed. With some JVM flags (the game's vmparams)
+        //even ConcurrentHashMap's internals aren't loaded yet; loading one later goes through the transformer, which
+        //needs it itself: ClassCircularityError, and the JVM refuses to start
+        preload("java.util.concurrent.ConcurrentHashMap$ForwardingNode", "java.util.concurrent.ConcurrentHashMap$ReservationNode",
+                "matlabmaster.multiplayer.agent.ClassPatcher");
         System.getProperties().put(NearestPlayer.ACTIVE_KEY, Boolean.TRUE);
+        Transformer transformer = new Transformer(classes);
+        transformer.transform(null, "", null, null, new byte[0]); //runs once outside class loading, so it's all linked
+        inst.addTransformer(transformer);
         System.out.println("[multiplayer agent] fleets spawn around every player: patching " + classes.size() + " fleet manager classes as they load");
+    }
+
+    private static void preload(String... names) {
+        for (String name : names) {
+            try {
+                Class.forName(name, false, NearestPlayerAgent.class.getClassLoader());
+            } catch (Throwable t) {
+                System.out.println("[multiplayer agent] couldn't preload " + name + ": " + t);
+            }
+        }
     }
 
     public static ClassPatcher patcher() {
