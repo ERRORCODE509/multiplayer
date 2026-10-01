@@ -89,6 +89,14 @@ Unlicense, as its developer stated (also in `LICENSE`).
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
+- [ ] **Bug, open:** NPC fleets of a faction the player made hostile still show as neutral in the client's game
+      (the server side works: they chase and intercept; the reputation reaches it in ~1 s). The game's
+      CampaignFleet.isHostileTo asks the copy's AI (ModularFleetAI -> tactical module, which HostileAwareTactics
+      wraps), and vanilla's TacticalModule would already be hostile by faction, so something at runtime differs.
+      Next: with both games running, set it with `ss_act guest rep {factionId: hegemony, value: -0.75}` and read
+      `ss_dump guest fleets {near: 3000}`: each fleet's `vsPlayer` block (bridge, built) has hostile both ways, the
+      relation, knowsPlayer, the AI and tactics classes and the make(Non)Hostile flags. A fallback fix if the
+      wrapper isn't the one asked: set `$cfai_makeHostile` (vanilla's TacticalModule checks it) on hostile copies.
 - [x] Fleet copies (`edd4467`, `82c4d6c`): checked with the agent bridge. Around the client every fleet keys by id
       (no duplicates), rosters in the same order, positions within 60; the only fleets missing on the client are the
       server's out of its sensor range. A client's fleet and its copy on the server: 21-29 units apart at 230 units/s
@@ -107,9 +115,11 @@ Unlicense, as its developer stated (also in `LICENSE`).
 - [ ] No PvP (`7c8341b`): flying into another player's fleet opens "comes alongside ..., another player's" with only
       Leave (both fleets shown), on a client and on the host ("host current game"); fighting an NPC fleet next to
       another player doesn't pull them in ("supporting your forces" / "joining the enemy" never names a player).
-- [ ] Smoothing (`7c8341b`, `a614c32`): other players' and NPC fleets no longer jump when the sync corrects them;
-      they glide there in well under a second (over 500 units off they still jump). Jumps between locations still
-      move them at once (with the flash). Planets and stations no longer jump at the 10 s orbit resync either.
+- [ ] Smoothing (`7c8341b`, `a614c32`, reworked in `2380126`): the user saw the first version work but stutter,
+      mostly sideways to a fleet's course. Now copies take their game's velocity (synced with movement) and the
+      position is eased in as one 2D vector, a little every frame, no 50-unit threshold (snap past 500 or on a
+      location change). Check: other players' and NPC fleets glide without sideways jitter; planets don't jump at
+      the 10 s orbit resync.
 - [ ] Closing the server (or losing the connection) while a client is in a dialog: the client's fleet name loses
       " [PAUSED]" (`a546ef8`); a save that has it loses it on loading.
 - [x] Clock (`3ec8821`): checked through the agent bridge (ss_diff status, both read at once): the client was
