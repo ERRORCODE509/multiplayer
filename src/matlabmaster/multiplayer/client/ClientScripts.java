@@ -11,14 +11,17 @@ import com.fs.starfarer.api.impl.campaign.ids.MemFlags;
 import com.fs.starfarer.campaign.Faction;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.updates.BattleSync;
+import matlabmaster.multiplayer.updates.DebrisSync;
 import matlabmaster.multiplayer.updates.FleetSync;
 import matlabmaster.multiplayer.updates.WorldSync;
 import matlabmaster.multiplayer.utils.*;
 import org.json.JSONObject;
 
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class ClientScripts implements EveryFrameScript {
@@ -35,6 +38,8 @@ public class ClientScripts implements EveryFrameScript {
     private final InteractionOrbit interactionOrbit = new InteractionOrbit();
     /** Our reputation and faction as last sent to the server (null: not since joining), see sendOwnFaction. */
     private String factionSent = null;
+    /** The battle debris fields the server knows of (ours sent, or others' received), see syncDebris. */
+    private final Set<String> debrisKnown = new HashSet<>();
     /** Our reputation as last sent, to log what changes. */
     private JSONObject reputationSent = null;
     private float factionTimer = 0f;
@@ -90,6 +95,7 @@ public class ClientScripts implements EveryFrameScript {
             if (factionSent != null) PlayerFactions.hideAll(); //just disconnected: nobody else is here any more
             factionSent = null;
             coloniesSent = null;
+            debrisKnown.clear();
             if (hasMirrors) {
                 ColonyMirrors.removeAll(); //the world's colonies stay in the world, not in this save
                 hasMirrors = false;
@@ -102,12 +108,16 @@ public class ClientScripts implements EveryFrameScript {
             if (!client.isConnected()) return;
             factionSent = null; //a new server knows nothing of us yet
             coloniesSent = null;
+            debrisKnown.clear();
         }
         factionTimer += amount;
         if (factionSent == null || factionTimer >= PlayerFactions.RELATIONS_INTERVAL) {
             factionTimer = 0f;
             sendOwnFaction();
-            if (!client.isSelfHosted) markHostiles();
+            if (!client.isSelfHosted) {
+                markHostiles();
+                syncDebris();
+            }
         }
         coloniesTimer += amount;
         if (coloniesSent == null || coloniesTimer >= COLONIES_INTERVAL) {
@@ -226,10 +236,27 @@ public class ClientScripts implements EveryFrameScript {
                     break;
                 case "playerLeft":
                     FleetHelper.removeFleetById(message.getString("id"));
-                    MultiplayerLog.log().info("[LEFT] " + message.getString("id") + " left the game");
+                    MultiplayerLog.log().info("[LEFT] " + message.optString("name", message.getString("id")) + " left the game");
                     break;
                 case "playerJoined":
-                    MultiplayerLog.log().info("[JOINED] " + message.getString("id") + " joined the game");
+                    MultiplayerLog.log().info("[JOINED] " + message.optString("name", message.getString("id")) + " joined the game");
+                    break;
+                case "debrisFields": {
+                    //debris another player's battle left
+                    JSONObject fields = message.getJSONObject("fields");
+                    for (Iterator<?> it = fields.keys(); it.hasNext(); ) {
+                        String id = (String) it.next();
+                        if (!client.isSelfHosted) DebrisSync.apply(id, fields.getJSONObject(id));
+                        debrisKnown.add(id);
+                    }
+                    break;
+                }
+                case "debrisGone":
+                    debrisKnown.remove(message.getString("id"));
+                    if (!client.isSelfHosted) DebrisSync.remove(message.getString("id"));
+                    break;
+                case "playerRenamed":
+                    MultiplayerLog.log().info(message.optString("before") + " is now " + message.getString("name"));
                     break;
                 case "globalFleetsUpdate":
                     //modifying msg to match what fleetSync.handleRemoteFleetUpdate expect
@@ -392,6 +419,7 @@ public class ClientScripts implements EveryFrameScript {
         try {
             JSONObject packet = new JSONObject();
             packet.put("commandId", "playerFaction");
+            packet.put("name", PlayerIdentity.name()); //who we are to the others: our character, whatever they're called now
             packet.putOpt("look", PlayerFactions.describeOwnFaction());
             JSONObject reputation = PlayerFactions.ownReputation();
             packet.put("reputation", reputation);
@@ -410,6 +438,40 @@ public class ClientScripts implements EveryFrameScript {
             reputationSent = reputation;
         } catch (Exception e) {
             MultiplayerLog.log().error("Couldn't send our reputation to the server", e);
+        }
+    }
+
+    /**
+     * Battle debris fields (see DebrisSync): any new one around us (our battles leave them here) goes to the server,
+     * and any we know of that's gone here (we salvaged it, or it ran out) goes everywhere.
+     */
+    private void syncDebris() {
+        try {
+            CampaignFleetAPI own = Global.getSector().getPlayerFleet();
+            if (own == null || own.getContainingLocation() == null) return;
+            JSONObject fields = DebrisSync.battleFields(own.getContainingLocation());
+            JSONObject fresh = new JSONObject();
+            for (Iterator<?> it = fields.keys(); it.hasNext(); ) {
+                String id = (String) it.next();
+                if (debrisKnown.add(id)) fresh.put(id, fields.get(id));
+            }
+            if (fresh.length() > 0) {
+                JSONObject packet = new JSONObject();
+                packet.put("commandId", "debrisFields");
+                packet.put("fields", fresh);
+                client.send(packet.toString());
+            }
+            for (Iterator<String> it = debrisKnown.iterator(); it.hasNext(); ) {
+                String id = it.next();
+                if (DebrisSync.exists(id)) continue;
+                it.remove();
+                JSONObject packet = new JSONObject();
+                packet.put("commandId", "debrisGone");
+                packet.put("id", id);
+                client.send(packet.toString());
+            }
+        } catch (Exception e) {
+            MultiplayerLog.log().error("Couldn't sync the debris fields", e);
         }
     }
 

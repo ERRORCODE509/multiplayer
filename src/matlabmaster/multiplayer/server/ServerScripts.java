@@ -340,7 +340,7 @@ public class ServerScripts implements EveryFrameScript {
                     packet.put("commandId", "intercepted");
                     packet.put("fleetId", fleet.getId());
                     serverInstance.sendTo(clientId, packet.toString());
-                    MultiplayerLog.log().info(fleet.getName() + " intercepted " + clientId);
+                    MultiplayerLog.log().info(fleet.getName() + " intercepted " + serverInstance.who(clientId));
                 } catch (Exception e) {
                     MultiplayerLog.log().error("Couldn't tell " + clientId + " they're intercepted", e);
                 }

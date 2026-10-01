@@ -200,7 +200,13 @@ public class ColonyMirrors {
             if (!industries.containsKey(industry.getId())) mirror.removeIndustry(industry.getId(), null, false);
         }
         for (Map.Entry<String, Boolean> industry : industries.entrySet()) {
-            if (mirror.hasIndustry(industry.getKey())) continue;
+            if (mirror.hasIndustry(industry.getKey())) {
+                //construction as in the owner's colony: started there, or finished
+                Industry existing = mirror.getIndustry(industry.getKey());
+                if (industry.getValue() && !existing.isBuilding()) existing.startBuilding();
+                else if (!industry.getValue() && existing.isBuilding()) existing.finishBuildingOrUpgrading();
+                continue;
+            }
             try {
                 mirror.addIndustry(industry.getKey());
                 if (industry.getValue() && mirror.getIndustry(industry.getKey()) != null) {

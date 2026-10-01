@@ -61,6 +61,11 @@ public class PlayerRegistry {
         return null;
     }
 
+    /** A player's character has a new name. */
+    public void setName(String playerId, String name) {
+        data.put("name:" + playerId, name);
+    }
+
     public String faction(String playerId) {
         return data.get("faction:" + playerId);
     }

@@ -165,6 +165,7 @@ public class FleetSerializer {
                     // Safety: Always sync commander if it's the flagship
                     if (member.isFlagship()) {
                         fleet.setCommander(member.getCaptain());
+                        setFleetName(fleet, fleet.getName()); //another player's fleet is named after them: renamed with them
                     }
                 }
                 if (changes.has("isMothballed")){

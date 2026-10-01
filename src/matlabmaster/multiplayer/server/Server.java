@@ -10,6 +10,7 @@ import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.econ.MarketAPI;
 import com.fs.starfarer.api.impl.campaign.ids.Factions;
 import matlabmaster.multiplayer.updates.BattleSync;
+import matlabmaster.multiplayer.updates.DebrisSync;
 import matlabmaster.multiplayer.updates.MarketSync;
 import matlabmaster.multiplayer.utils.PlayerFactions;
 import matlabmaster.multiplayer.MultiplayerLog;
@@ -75,6 +76,33 @@ public class Server {
     public final Map<String, String> clientFactions = new ConcurrentHashMap<>();
     /** Each connected player's permanent player id (client id -> player id), from their hello. */
     public final Map<String, String> clientPlayers = new ConcurrentHashMap<>();
+    /** Each connected player's name: their character's (client id -> name), kept up to date by their game. */
+    public final Map<String, String> clientNames = new ConcurrentHashMap<>();
+
+    /** Who a client is, for the logs: their character's name with their client id, "Name (User-1a2b3c4d)". */
+    public String who(String clientId) {
+        String name = clientNames.get(clientId);
+        return name != null ? name + " (" + clientId + ")" : clientId;
+    }
+
+    /** Network or game thread: a player's character has a new name (their game says so): everyone is told. */
+    public void renamed(String clientId, String name) {
+        String before = clientNames.put(clientId, name);
+        if (name.equals(before)) return;
+        String playerId = clientPlayers.get(clientId);
+        if (playerId != null) registry.setName(playerId, name);
+        MultiplayerLog.log().info(before + " is now " + name);
+        try {
+            JSONObject packet = new JSONObject();
+            packet.put("commandId", "playerRenamed");
+            packet.put("id", clientId);
+            packet.put("before", before);
+            packet.put("name", name);
+            broadcastExcept(clientId, packet.toString());
+        } catch (JSONException e) {
+            MultiplayerLog.log().error("Couldn't tell the players " + before + " is now " + name, e);
+        }
+    }
     /** Every player who has joined this world: their factions, looks and colonies, kept in its save. */
     public final PlayerRegistry registry = new PlayerRegistry();
     /** Gives players markets' stock and takes their trades, players' colonies included (game thread). */
@@ -175,16 +203,9 @@ public class Server {
                             continue;
                         }
                         clients.put(clientId, handler);
-                        JSONObject packet;
 
-                        MultiplayerLog.log().info("[JOINED] " + clientId + " is connected");
-                        try {
-                            packet = new JSONObject();
-                            packet.put("commandId","playerJoined");
-                            packet.put("id",clientId);
-                        }catch (Exception e){
-                            MultiplayerLog.log().error("failed to broadcast player joined");
-                        }
+                        //announced as they join, by name, once their game has said who they are (hello)
+                        MultiplayerLog.log().info(clientId + " connected");
                         threadPool.execute(handler);
 
                     } catch (IOException e) {
@@ -305,7 +326,7 @@ public class Server {
                     } else {
                         interactions.remove(clientId);
                     }
-                    MultiplayerLog.log().info("client " + clientId + " has " + commandId + (target != null ? " (talking to " + target + ")" : ""));
+                    MultiplayerLog.log().info(who(clientId) + " has " + commandId + (target != null ? " (talking to " + target + ")" : ""));
                     break;
                 case "requestPlayerFleetSnapshot":
                     //relay the information to concerned client (who may have left already)
@@ -350,12 +371,32 @@ public class Server {
                     JSONObject trade = json.getJSONObject("trade");
                     gameThreadTasks.add(() -> markets.trade(clientId, trade));
                     break;
+                case "debrisFields":
+                case "debrisGone":
+                    //the debris a player's battle left, or a field gone in their game: the world and everyone else too
+                    gameThreadTasks.add(() -> {
+                        try {
+                            if ("debrisGone".equals(commandId)) {
+                                DebrisSync.remove(json.getString("id"));
+                            } else {
+                                JSONObject fields = json.getJSONObject("fields");
+                                for (Iterator<?> it = fields.keys(); it.hasNext(); ) {
+                                    String id = (String) it.next();
+                                    DebrisSync.apply(id, fields.getJSONObject(id));
+                                }
+                            }
+                            broadcastExcept(clientId, json.toString());
+                        } catch (Exception e) {
+                            MultiplayerLog.log().error("Failed to apply the debris of " + who(clientId), e);
+                        }
+                    });
+                    break;
                 case "battleResult":
                     //a player's battle against the world's NPC fleets: they lose the same ships here
                     JSONObject result = json.getJSONObject("result");
                     gameThreadTasks.add(() -> {
                         try {
-                            BattleSync.apply(clientId, result);
+                            BattleSync.apply(who(clientId), result);
                         } catch (Exception e) {
                             MultiplayerLog.log().error("Failed to apply a battle of " + clientId, e);
                         }
@@ -404,7 +445,13 @@ public class Server {
         reply.put("commandId", "yourFaction");
         reply.put("faction", faction);
         sendTo(clientId, reply.toString());
-        MultiplayerLog.log().info(clientId + " is " + name + " (" + playerId + "), faction " + faction);
+        clientNames.put(clientId, name);
+        MultiplayerLog.log().info("[JOINED] " + name + " (" + clientId + ", player " + playerId + "), faction " + faction);
+        JSONObject joined = new JSONObject();
+        joined.put("commandId", "playerJoined");
+        joined.put("id", clientId);
+        joined.put("name", name);
+        broadcastExcept(clientId, joined.toString());
         markets.deliverQueuedTrades(clientId, playerId); //visitors' trades at their colonies while they were away
     }
 
@@ -468,11 +515,11 @@ public class Server {
     public void requestMissingPlayerFleets() {
         for (String clientId : worldClients().keySet()) {
             if (Global.getSector().getEntityById(clientId) instanceof CampaignFleetAPI) {
-                if (missingPlayerFleets.remove(clientId)) MultiplayerLog.log().info("Have " + clientId + "'s fleet again");
+                if (missingPlayerFleets.remove(clientId)) MultiplayerLog.log().info("Have " + who(clientId) + "'s fleet again");
                 continue;
             }
             if (missingPlayerFleets.add(clientId)) {
-                MultiplayerLog.log().warn("No copy of " + clientId + "'s fleet in this game: it sees no NPC fleets until it's back; asking for it");
+                MultiplayerLog.log().warn("No copy of " + who(clientId) + "'s fleet in this game: it sees no NPC fleets until it's back; asking for it");
             }
             try {
                 JSONObject ask = new JSONObject();
@@ -535,10 +582,13 @@ public class Server {
                 try {
                     packet.put("commandId","playerLeft");
                     packet.put("id",clientId);
+                    packet.put("name", who(clientId));
                     broadcast(String.valueOf(packet));
+                    MultiplayerLog.log().info("[LEFT] " + who(clientId) + " (" + clientId + ")");
                 }catch (Exception e){
                     MultiplayerLog.log().error("Failed to broadcast playerLeft of leaving player", e);
                 }
+                clientNames.remove(clientId);
             }
         }
 

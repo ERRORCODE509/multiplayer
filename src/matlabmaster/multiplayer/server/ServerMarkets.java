@@ -90,7 +90,7 @@ public class ServerMarkets {
                 MarketAPI market = Global.getSector().getEconomy().getMarket(marketId);
                 if (market == null) return;
                 MarketSync.applyTrade(market, trade, market.isPlayerOwned());
-                MultiplayerLog.log().info(clientId + " traded at " + market.getName());
+                MultiplayerLog.log().info(server.who(clientId) + " traded at " + market.getName());
                 return;
             }
             MarketSync.applyTrade(mirror, trade);
@@ -98,10 +98,10 @@ public class ServerMarkets {
             String owner = server.clientOf(ownerId);
             if (owner != null) {
                 server.sendTo(owner, tradePacket(trade).toString());
-                MultiplayerLog.log().info(clientId + " traded at " + mirror.getName() + " (sent to its owner)");
+                MultiplayerLog.log().info(server.who(clientId) + " traded at " + mirror.getName() + " (sent to its owner)");
             } else {
                 server.registry.queueTrade(ownerId, trade);
-                MultiplayerLog.log().info(clientId + " traded at " + mirror.getName() + " (its owner gets it when they're back)");
+                MultiplayerLog.log().info(server.who(clientId) + " traded at " + mirror.getName() + " (its owner gets it when they're back)");
             }
         } catch (Exception e) {
             MultiplayerLog.log().error("Failed to apply a trade from " + clientId, e);
@@ -118,7 +118,7 @@ public class ServerMarkets {
                 MultiplayerLog.log().error("Couldn't send a queued trade to " + clientId, e);
             }
         }
-        if (trades.length() > 0) MultiplayerLog.log().info("Sent " + trades.length() + " trades at their colonies to " + clientId);
+        if (trades.length() > 0) MultiplayerLog.log().info("Sent " + trades.length() + " trades at their colonies to " + server.who(clientId));
     }
 
     /** Every frame, from ServerScripts: visitors whose colony's owner is too slow get the stock it last sent. */

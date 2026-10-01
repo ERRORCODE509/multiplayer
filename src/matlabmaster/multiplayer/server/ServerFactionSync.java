@@ -38,6 +38,8 @@ public class ServerFactionSync {
     void playerFaction(String clientId, JSONObject message) {
         String faction = server.clientFactions.get(clientId);
         if (!PlayerFactions.isSlot(faction)) return; //no faction of their own (all taken): nothing of theirs to apply
+        String name = message.optString("name", null);
+        if (name != null && !name.isEmpty()) server.renamed(clientId, name); //their character's name, if it changed
         try {
             JSONObject look = message.optJSONObject("look");
             PlayerFactions.applyLook(faction, look);

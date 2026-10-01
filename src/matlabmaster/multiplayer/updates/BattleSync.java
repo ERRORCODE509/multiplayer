@@ -63,16 +63,19 @@ public class BattleSync {
     }
 
     /** Server: applies a player's battle result to the world's NPC fleets. */
-    public static void apply(String clientId, JSONObject result) throws JSONException {
+    public static void apply(String player, JSONObject result) throws JSONException {
         for (Iterator<?> it = result.keys(); it.hasNext(); ) {
             String id = (String) it.next();
             SectorEntityToken entity = Global.getSector().getEntityById(id);
             if (!(entity instanceof CampaignFleetAPI)) continue; //gone already, or only in their game
             CampaignFleetAPI fleet = (CampaignFleetAPI) entity;
             if (fleet.isPlayerFleet() || fleet.hasTag("playerFleet")) continue;
+            //a station isn't destroyed by losing: vanilla disables it and its market deals with that. Despawning it
+            //took a market's station out of the world for good (Jangala Station): left to the server's game
+            if (fleet.isStationMode()) continue;
             JSONObject outcome = result.getJSONObject(id);
             if (outcome.optBoolean("destroyed")) {
-                destroy(fleet, clientId);
+                destroy(fleet, player);
                 continue;
             }
             JSONObject ships = outcome.getJSONObject("ships");
@@ -88,15 +91,15 @@ public class BattleSync {
                 member.getStatus().setHullFraction((float) ship.getDouble("hull"));
             }
             if (fleet.getFleetData().getNumMembers() == 0) {
-                destroy(fleet, clientId);
+                destroy(fleet, player);
             } else if (lost > 0) {
-                MultiplayerLog.log().info(fleet.getName() + " lost " + lost + " ships fighting " + clientId);
+                MultiplayerLog.log().info(fleet.getName() + " lost " + lost + " ships fighting " + player);
             }
         }
     }
 
-    private static void destroy(CampaignFleetAPI fleet, String clientId) {
-        MultiplayerLog.log().info(fleet.getName() + " was destroyed fighting " + clientId);
+    private static void destroy(CampaignFleetAPI fleet, String player) {
+        MultiplayerLog.log().info(fleet.getName() + " was destroyed fighting " + player);
         fleet.despawn(CampaignEventListener.FleetDespawnReason.DESTROYED_BY_BATTLE, null);
     }
 
