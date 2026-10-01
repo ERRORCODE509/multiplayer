@@ -573,6 +573,13 @@ public class ClientScripts implements EveryFrameScript {
 
     private void executeTick() {
         try {
+            //everyone knows our fleet by our client id (completeJoin gave it); a new player fleet (after losing the
+            //old one) would otherwise be a stranger, and the server, looking for ours, would never find it
+            CampaignFleetAPI own = Global.getSector().getPlayerFleet();
+            if (own != null && client.clientId != null && !client.clientId.equals(own.getId())) {
+                MultiplayerLog.log().info("Our fleet is new (" + own.getId() + "): it's " + client.clientId + " to the others again");
+                own.setId(client.clientId);
+            }
             fleetSync.sendOwnFleetUpdate(client);
             if (client.isSelfHosted) {
                 //the host's own client shares the server's game, which is the world: its scripts must run
