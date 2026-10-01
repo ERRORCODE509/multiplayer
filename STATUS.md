@@ -46,7 +46,7 @@ Unlicense, as its developer stated (also in `LICENSE`).
 
 ## Dev tool: starsector-mcp (not set up yet)
 - AyoKeito/starsector-coop's MCP server (CC BY-NC 4.0, theirs: never commit it; `.gitignore` has
-  `tools/starsector-mcp/` and `.mcp.json`). Its files are in `tools/starsector-mcp/` with their license. Don't
+  `tools/starsector-mcp/` and `.mcp.json`). Its files are in `tools/starsector-mcp/` (local only). Don't
   read or use the coop mod's own code (other license; the user's call).
 - Not installed: running `npm ci` (third-party code) needs the user's go-ahead. Then register it in a `.mcp.json`
   (`node <path>/tools/starsector-mcp/index.js`).
