@@ -36,6 +36,9 @@ public class ServerScripts implements EveryFrameScript {
     private final Server serverInstance;
     private FleetSync fleetSync = new FleetSync();
     private float timer = 0f;
+    /** How often a dedicated server checks it still has every connected player's fleet (seconds). */
+    private static final float MISSING_FLEETS_INTERVAL = 2f;
+    private float missingFleetsTimer = 0f;
     private boolean wasRunning = false;
     private boolean worldWasPaused = false;
     private boolean ownFleetHidden = false;
@@ -81,6 +84,14 @@ public class ServerScripts implements EveryFrameScript {
             broadcastWorldPaused(paused);
         }
         if (paused) return;
+
+        if (serverInstance.isDedicated()) {
+            missingFleetsTimer += amount;
+            if (missingFleetsTimer >= MISSING_FLEETS_INTERVAL) {
+                missingFleetsTimer = 0f;
+                serverInstance.requestMissingPlayerFleets();
+            }
+        }
 
         timer += amount;
         if (timer < INTERVAL) return;

@@ -43,6 +43,8 @@ public class Server {
     private volatile String localClientId;
     /** Player fleets a dedicated server has asked their client for in full, so it asks only once. */
     private final Set<String> pendingPlayerSnapshots = ConcurrentHashMap.newKeySet();
+    /** Connected players this game has no copy of the fleet of (game thread only), so it's only logged once. */
+    private final Set<String> missingPlayerFleets = new HashSet<>();
     /** The host's game version, seed and mods, sent in every welcome so joiners can check they match. */
     private volatile JSONObject hostGame;
     /**
@@ -312,6 +314,32 @@ public class Server {
             }
         } catch (Exception e) {
             MultiplayerLog.log().error("Failed to apply a fleet update from " + clientId, e);
+        }
+    }
+
+    /**
+     * Dedicated mode, game thread: asks each connected player whose fleet this game has no copy of for all of it.
+     * Without a copy that player is sent no NPC fleets at all, and a fleet update is what normally makes this game
+     * ask; a player who isn't moving sends none, so a copy lost from this game would never come back.
+     */
+    public void requestMissingPlayerFleets() {
+        for (String clientId : worldClients().keySet()) {
+            if (Global.getSector().getEntityById(clientId) instanceof CampaignFleetAPI) {
+                if (missingPlayerFleets.remove(clientId)) MultiplayerLog.log().info("Have " + clientId + "'s fleet again");
+                continue;
+            }
+            if (missingPlayerFleets.add(clientId)) {
+                MultiplayerLog.log().warn("No copy of " + clientId + "'s fleet in this game: it sees no NPC fleets until it's back; asking for it");
+            }
+            try {
+                JSONObject ask = new JSONObject();
+                ask.put("commandId", "requestPlayerFleetSnapshot");
+                ask.put("to", clientId);
+                ask.put("from", SERVER_ID);
+                sendTo(clientId, ask.toString());
+            } catch (Exception e) {
+                MultiplayerLog.log().error("Failed to ask " + clientId + " for its fleet", e);
+            }
         }
     }
 
