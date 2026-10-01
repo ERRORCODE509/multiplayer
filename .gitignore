@@ -196,3 +196,7 @@ nbdist/
 # multiplayer launcher build output
 launcher/build/
 agent/build/
+
+# local dev tools, never published (other licenses): starsector-mcp (see STATUS.md)
+tools/starsector-mcp/
+.mcp.json
