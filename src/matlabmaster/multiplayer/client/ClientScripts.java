@@ -99,6 +99,10 @@ public class ClientScripts implements EveryFrameScript {
             coloniesSent = null;
             debrisKnown.clear();
             HostileAwareTactics.unwrapAll();
+            if (client != null && client.wasPaused) { //left in a dialog: never told the server, nobody to tell now
+                client.wasPaused = false;
+                PauseUtility.clearPausedName();
+            }
             if (hasMirrors) {
                 ColonyMirrors.removeAll(); //the world's colonies stay in the world, not in this save
                 hasMirrors = false;
@@ -176,6 +180,7 @@ public class ClientScripts implements EveryFrameScript {
     public void onGameLoad() {
         sectorScriptsUtility.forgetScripts();
         interactionOrbit.forget();
+        PauseUtility.clearPausedName(); //a save from before this was fixed may have it
         //our battles against the world's NPC fleets: the server's must lose the same ships (transient: not in the save)
         Global.getSector().addTransientListener(new BaseCampaignEventListener(false) {
             @Override

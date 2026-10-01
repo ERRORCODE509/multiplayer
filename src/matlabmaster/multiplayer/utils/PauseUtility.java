@@ -13,6 +13,21 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 public class PauseUtility {
+    private static final String PAUSED = " [PAUSED]";
+
+    /**
+     * Our fleet's name without the dialog mark. Also when we leave the server (or it goes) mid-dialog, and on
+     * loading a game: the mark was otherwise kept, in the save too, and added again next time.
+     */
+    public static void clearPausedName() {
+        if (Global.getSector().getPlayerFleet() == null) return;
+        String fleetName = Global.getSector().getPlayerFleet().getName();
+        while (fleetName != null && fleetName.endsWith(PAUSED)) {
+            fleetName = fleetName.substring(0, fleetName.length() - PAUSED.length());
+            Global.getSector().getPlayerFleet().setName(fleetName);
+        }
+    }
+
     public static void clientPauseUtility(Client client, FleetSync fleetSync, ClientMarkets markets, InteractionOrbit orbit){
         try {
             if(Global.getSector().isPaused()){
@@ -39,9 +54,7 @@ public class PauseUtility {
                     if (!client.isSelfHosted) orbit.start(target); //it moves on while we talk: stay by it
 
                     //name update
-                    String fleetName = Global.getSector().getPlayerFleet().getName();
-                    fleetName += " [PAUSED]";//9 char long
-                    Global.getSector().getPlayerFleet().setName(fleetName);
+                    Global.getSector().getPlayerFleet().setName(Global.getSector().getPlayerFleet().getName() + PAUSED);
                     fleetSync.sendOwnFleetUpdate(client);//send the updated name
 
                     client.send(String.valueOf(packet));
@@ -51,12 +64,7 @@ public class PauseUtility {
                     client.wasPaused = false;
                     JSONObject packet = new JSONObject();
                     packet.put("commandId","unpaused");
-                    String fleetName = Global.getSector().getPlayerFleet().getName();
-                    // Check if it ends with " [paused]" and remove it if present
-                    if (fleetName.endsWith(" [PAUSED]")) {
-                        fleetName = fleetName.substring(0, fleetName.length() - " [paused]".length());
-                        Global.getSector().getPlayerFleet().setName(fleetName);
-                    }
+                    clearPausedName();
 
                     //catch up with the various updates
                     if(!client.isSelfHosted){ //the host's own game is the world
