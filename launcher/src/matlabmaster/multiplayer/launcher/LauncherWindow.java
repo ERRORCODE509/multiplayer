@@ -137,8 +137,11 @@ public class LauncherWindow extends JFrame {
 
     private void startPlayerGame() {
         try {
-            //the game's own command (as starsector.exe / .sh would run it) plus the agent, from the game's folder
-            new ProcessBuilder(install.playerCommand(MultiplayerLauncher.agentJar())).directory(install.workDir.toFile()).start();
+            //the game's own command (as starsector.exe / .sh would run it) plus the agent, from the game's folder.
+            //Its console output must go somewhere: nobody reads it, and once the pipe is full the game stops at its
+            //next print (it writes starsector.log anyway)
+            new ProcessBuilder(install.playerCommand(MultiplayerLauncher.agentJar())).directory(install.workDir.toFile())
+                    .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
             say("Started your own game. Once in the campaign, JOIN 127.0.0.1 on port " + port.getText().trim() + " in the multiplayer window.");
         } catch (Exception ex) {
             say("ERROR starting your game: " + ex.getMessage());
