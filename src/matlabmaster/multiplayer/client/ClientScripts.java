@@ -96,6 +96,7 @@ public class ClientScripts implements EveryFrameScript {
             factionSent = null;
             coloniesSent = null;
             debrisKnown.clear();
+            HostileAwareTactics.unwrapAll();
             if (hasMirrors) {
                 ColonyMirrors.removeAll(); //the world's colonies stay in the world, not in this save
                 hasMirrors = false;
@@ -109,6 +110,7 @@ public class ClientScripts implements EveryFrameScript {
             factionSent = null; //a new server knows nothing of us yet
             coloniesSent = null;
             debrisKnown.clear();
+            HostileAwareTactics.unwrapAll();
         }
         factionTimer += amount;
         if (factionSent == null || factionTimer >= PlayerFactions.RELATIONS_INTERVAL) {
@@ -165,6 +167,7 @@ public class ClientScripts implements EveryFrameScript {
      */
     public void restoreSectorScripts() {
         sectorScriptsUtility.restoreScripts();
+        HostileAwareTactics.unwrapAll(); //never in a save: put back within a second
     }
 
     /** A new game was loaded: any scripts saved from the previous game belong to a sector that is gone. */
@@ -481,18 +484,12 @@ public class ClientScripts implements EveryFrameScript {
      * Whether a fleet is hostile to us is its AI's call (CampaignFleet.isHostileTo asks it), and the copies of the
      * world's NPC fleets here don't think for themselves (the server moves them), so they kept showing as they were
      * when they arrived, neutral after we'd made their faction hostile. The NPC fleets around us whose faction is
-     * hostile to us now (our reputation: this game's) are marked hostile as vanilla marks a fleet, for a moment at a
-     * time (renewed every second, gone by itself once it isn't, and never left behind in the save).
+     * hostile to us now (our reputation: this game's) are hostile to us: see HostileAwareTactics (wrapped within a
+     * second, never in a save).
      */
     private void markHostiles() {
-        CampaignFleetAPI own = Global.getSector().getPlayerFleet();
-        if (own == null || own.getContainingLocation() == null) return;
-        for (CampaignFleetAPI fleet : own.getContainingLocation().getFleets()) {
-            if (fleet == own || fleet.hasTag("playerFleet") || fleet.getFaction() == null) continue;
-            if (Global.getSector().getPlayerFaction().isHostileTo(fleet.getFaction())) {
-                fleet.getMemoryWithoutUpdate().set(MemFlags.MEMORY_KEY_MAKE_HOSTILE, true, 0.5f);
-            }
-        }
+        //the AI's tactical module decides (a memory flag isn't asked): theirs is wrapped, see HostileAwareTactics
+        HostileAwareTactics.wrapAround(Global.getSector().getPlayerFleet());
     }
 
     /**

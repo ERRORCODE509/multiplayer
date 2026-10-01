@@ -10,7 +10,7 @@ Pushing over HTTPS sometimes drops; retry, or push one commit at a time
 ## Needs testing (latest first)
 - [ ] NPC fleets leave a player alone during a dialog/interception (no swarm afterwards). Commit `255db92`.
 - [ ] Fleet kept orbiting a planet after a dialog moves smoothly on the host (not every ~10 s). Commit `255db92`.
-- [ ] Hostile fleets shown as hostile in the client (map colours). See open item 1.
+- [ ] Hostile fleets shown as hostile in the client (map colours): their AI's tactical module is wrapped (HostileAwareTactics, commit after 255db92). Also check saving while connected still works.
 - [ ] Renaming the character (console) logs `<old> is now <new>` on the server and renames "<name>'s Fleet".
 - [ ] Jumping between locations: the client's fleet stays visible on the host, NPC fleets keep arriving.
 - [ ] Colony construction catches up after a host fast-forward and the host's copy matches it.
@@ -19,7 +19,7 @@ Tested OK: interception dialog + host freeze, debris fields, station not destroy
 second client (Commerce needed), player names in the join log, factions/reputation sync, battle results.
 
 ## Open items
-1. **Hostile map colours in the client.** `CampaignFleet.isHostileTo` asks the fleet's AI when it has one;
+1. **(Done, needs testing) Hostile map colours in the client.** `CampaignFleet.isHostileTo` asks the fleet's AI when it has one;
    `ModularFleetAI.isHostileTo` asks its `TacticalModulePlugin`, which ignores `$cfai_makeHostile` (so
    `ClientScripts.markHostiles` doesn't work). Plan: wrap the tactical module of the client's NPC copies
    (delegate everything, `isHostileTo(playerFleet)` = player faction hostile to the fleet's faction), unwrap before
