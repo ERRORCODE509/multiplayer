@@ -47,6 +47,9 @@ public class InteractionOrbit {
             focus = null;
             return;
         }
+        //headed where it is: the orbit moves it, and the world's copy (which goes where we're headed between our
+        //updates) would otherwise keep floating back to wherever we were headed before
+        fleet.setMoveDestination(fleet.getLocation().x, fleet.getLocation().y);
         if (Global.getSector().getCampaignUI().isShowingDialog()) {
             dialogOver = false; //still talking
             return;

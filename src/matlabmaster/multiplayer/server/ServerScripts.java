@@ -349,8 +349,13 @@ public class ServerScripts implements EveryFrameScript {
         }
     }
 
-    /** A player's fleet stops here: no speed, and nowhere else to go. */
+    /**
+     * A player's fleet stops here: no speed, and nowhere else to go. And no NPC fleet goes after it meanwhile (in
+     * single player the world is paused: here they'd gather around and all be at them once the dialog closes),
+     * for a moment at a time, renewed every frame of the dialog and gone by itself after it.
+     */
     private static void stop(CampaignFleetAPI fleet, Vector2f at) {
+        fleet.getMemoryWithoutUpdate().set(MemFlags.FLEET_IGNORED_BY_OTHER_FLEETS, true, 0.1f);
         if (fleet.getOrbit() == null) fleet.setLocation(at.x, at.y);
         fleet.getVelocity().set(0f, 0f);
         fleet.setMoveDestination(at.x, at.y);
