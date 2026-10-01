@@ -21,6 +21,7 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.HashSet;
@@ -137,6 +138,7 @@ public class ClientScripts implements EveryFrameScript {
                 markHostiles();
                 syncDebris();
                 showOtherPlayers();
+                removeDuplicateCopies();
             }
         }
         coloniesTimer += amount;
@@ -233,7 +235,7 @@ public class ClientScripts implements EveryFrameScript {
                     }else{
                         //only run if not paused because if the client is pause it will continuously ask for snapshots
                         //and then try to spawn all of them when unpausing resulting in 1000 fleet spawning
-                        if(!Global.getSector().isPaused()){
+                        if(!Global.getSector().isPaused() && askFor(message.getString("fleetId"))){
                             //usually called when a fleet dies and respawn
                             MultiplayerLog.log().error("playerFleetUpdate : unknown fleet");
                             packet = new JSONObject();
@@ -257,8 +259,7 @@ public class ClientScripts implements EveryFrameScript {
                     MultiplayerLog.log().info("added " + i + " fleets");
                     break;
                 case "fleetSnapshot":
-                    if (isOwnFleet(message.getJSONObject("fleet").getString("id"))) break;
-                    FleetSerializer.unSerializeFleet(message.getJSONObject("fleet"),Global.getFactory().createEmptyFleet(Faction.NO_FACTION,true));
+                    spawnCopy(message.getJSONObject("fleet"));
                     break;
                 case "playerLeft": {
                     FleetHelper.removeFleetById(message.getString("id"));
@@ -343,9 +344,9 @@ public class ClientScripts implements EveryFrameScript {
                     if (client.ui != null) client.ui.setWorldPaused(worldPaused);
                     break;
                 case "handleFleetSnapshotRequest":
-                    if (isOwnFleet(message.getJSONObject("fleet").getString("id"))) break;
-                    FleetSerializer.unSerializeFleet(message.getJSONObject("fleet"),Global.getFactory().createEmptyFleet(Faction.NO_FACTION,true));
-                    MultiplayerLog.log().info("spawned "+ message.getJSONObject("fleet").getString("id")+ " fleet following request");
+                    if (spawnCopy(message.getJSONObject("fleet"))) {
+                        MultiplayerLog.log().info("spawned "+ message.getJSONObject("fleet").getString("id")+ " fleet following request");
+                    }
                     break;
                 case "requestPlayerFleetSnapshot":
                     packet = new JSONObject();
@@ -468,7 +469,7 @@ public class ClientScripts implements EveryFrameScript {
         if (existing instanceof CampaignFleetAPI) {
             fleetSync.handleRemoteFleetUpdate(updateWrapper);
         } else {
-            if(!Global.getSector().isPaused()){
+            if(!Global.getSector().isPaused() && askFor(fleetId)){
                 //only run if not paused because if the client is pause it will continuously ask for snapshots
                 //and then try to spawn all of them when unpausing resulting in 1000 fleet spawning
                 JSONObject packet = new JSONObject();
@@ -606,6 +607,57 @@ public class ClientScripts implements EveryFrameScript {
     /** A line in the campaign's message log (bottom left), for what the player should notice without the window. */
     private static void notify(String text) {
         if (Global.getSector().getCampaignUI() != null) Global.getSector().getCampaignUI().addMessage(text, Misc.getHighlightColor());
+    }
+
+    /** Fleets asked for in full (fleet id -> when, ms), see askFor. */
+    private final Map<String, Long> askedFor = new HashMap<>();
+    private static final long ASK_AGAIN_MS = 2000;
+
+    /**
+     * Whether to ask the server for a fleet this game doesn't have: not again while the answer is on its way. Every
+     * update of that fleet (20 a second) used to ask, and each answer spawned a copy.
+     */
+    private boolean askFor(String fleetId) {
+        long now = System.currentTimeMillis();
+        Long asked = askedFor.get(fleetId);
+        if (asked != null && now - asked < ASK_AGAIN_MS) return false;
+        if (askedFor.size() > 500) askedFor.clear(); //only recent ones matter
+        askedFor.put(fleetId, now);
+        return true;
+    }
+
+    /**
+     * A fleet sent in full (asked for, or a player's): a copy is added, unless this game has that fleet already (the
+     * world's own "added" got here first): a second copy was never updated, frozen where it appeared. Returns whether
+     * it was added.
+     */
+    private boolean spawnCopy(JSONObject fleet) throws Exception {
+        String id = fleet.getString("id");
+        askedFor.remove(id);
+        if (isOwnFleet(id) || Global.getSector().getEntityById(id) instanceof CampaignFleetAPI) return false;
+        FleetSerializer.unSerializeFleet(fleet, Global.getFactory().createEmptyFleet(Faction.NO_FACTION, true));
+        return true;
+    }
+
+    /**
+     * Two copies of the same fleet around us (from before spawnCopy checked, or a save that has them): only the one
+     * the game finds by its id gets the updates; the others are removed.
+     */
+    private void removeDuplicateCopies() {
+        CampaignFleetAPI own = Global.getSector().getPlayerFleet();
+        if (own == null || own.getContainingLocation() == null) return;
+        Set<String> seen = new HashSet<>();
+        List<CampaignFleetAPI> extra = new ArrayList<>();
+        for (CampaignFleetAPI fleet : own.getContainingLocation().getFleets()) {
+            if (fleet.isPlayerFleet() || fleet.getId() == null || seen.add(fleet.getId())) continue;
+            //a second one with this id: whichever of them isn't the one the game finds goes
+            SectorEntityToken kept = Global.getSector().getEntityById(fleet.getId());
+            for (CampaignFleetAPI same : own.getContainingLocation().getFleets()) {
+                if (same != kept && !same.isPlayerFleet() && fleet.getId().equals(same.getId()) && !extra.contains(same)) extra.add(same);
+            }
+        }
+        for (CampaignFleetAPI fleet : extra) fleet.getContainingLocation().removeEntity(fleet);
+        if (!extra.isEmpty()) MultiplayerLog.log().warn("Removed " + extra.size() + " duplicate fleet copies");
     }
 
     /** Our own player fleet, which only we are in charge of: never replaced by a copy from someone else. */
