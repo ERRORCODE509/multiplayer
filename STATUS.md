@@ -62,8 +62,10 @@ Unlicense, as its developer stated (also in `LICENSE`).
   `give`, `addship`, `setcr`, `ability`, `rep` ({factionId, value}), `mark` ({text} -> "[AGENT MARK]" in the log),
   `memory`. Works in-game (status, fleets, entities, ss_diff checked). `entities` skips asteroids: they're never
   synced (each game's belts and fields make their own, with their own ids).
-- Fleet ids are the same in every game of a session, so `ss_diff(what: "fleets", args: {near: 3000})` compares the
-  server's and a client's view around the client's fleet (the server has every fleet, a client only nearby ones).
+- Fleet ids are the same in every game of a session, so `ss_diff(what: "fleets", args: {near: 3000, around:
+  "<client id>"})` compares the server's and a client's view around the client's fleet (the server has every fleet,
+  a client only nearby ones; on a dedicated server the local player fleet is a stand-in, hence `around`).
+  `{fleetId: "a,b"}` picks fleets anywhere. Each fleet has a per-game `vsPlayer` block (ignore it in diffs).
 
 ## Architecture (what's where)
 - The **server's game is the only authority on the world** (NPC fleets, clock, markets, economy); each **player's
@@ -95,8 +97,14 @@ Unlicense, as its developer stated (also in `LICENSE`).
       wraps), and vanilla's TacticalModule would already be hostile by faction, so something at runtime differs.
       Next: with both games running, set it with `ss_act guest rep {factionId: hegemony, value: -0.75}` and read
       `ss_dump guest fleets {near: 3000}`: each fleet's `vsPlayer` block (bridge, built) has hostile both ways, the
-      relation, knowsPlayer, the AI and tactics classes and the make(Non)Hostile flags. A fallback fix if the
-      wrapper isn't the one asked: set `$cfai_makeHostile` (vanilla's TacticalModule checks it) on hostile copies.
+      relation, knowsPlayer, visibility, the AI and tactics classes and the make(Non)Hostile flags.
+      What javap showed (RC8): the fleet tooltip's stance (StandardTooltipV2$9) is `fleet.getAI().isHostileTo(player)`,
+      and only at visibility COMPOSITION_AND_FACTION_DETAILS (lower: neutral/unknown). Every AI path is hostile by
+      faction at <= -0.5: legacy CampaignFleetAI (`$cfai_makeHostile` if set, else Faction.isAtBest(HOSTILE)), vanilla
+      TacticalModule (flags, then faction; not hostile if the player's transponder is off and !knowsWhoPlayerIs), and
+      our wrapper. CampaignFleet only makes a ModularFleetAI in writeReplace (saving), so a fresh copy may have the
+      legacy AI (HostileAwareTactics only wraps ModularFleetAIAPI). So suspect visibility or something overriding
+      the relation: read `vsPlayer` first. Fallback fix: `$cfai_makeHostile` on hostile copies (both AIs check it).
 - [x] Fleet copies (`edd4467`, `82c4d6c`): checked with the agent bridge. Around the client every fleet keys by id
       (no duplicates), rosters in the same order, positions within 60; the only fleets missing on the client are the
       server's out of its sensor range. A client's fleet and its copy on the server: 21-29 units apart at 230 units/s
