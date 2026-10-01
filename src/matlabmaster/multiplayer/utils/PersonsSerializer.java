@@ -24,6 +24,8 @@ public class PersonsSerializer {
         serializedPerson.put("level", person.getStats().getLevel());
         serializedPerson.put("isAiCore",person.isAICore());
         serializedPerson.put("aiCoreId",person.getAICoreId());
+        //a new person is "neutral": without this every commander a client met was neutral, whatever their fleet
+        if (person.getFaction() != null) serializedPerson.put("factionId", person.getFaction().getId());
         JSONObject skillsMap = new JSONObject();
         List<MutableCharacterStatsAPI.SkillLevelAPI> skills = person.getStats().getSkillsCopy();
         for (MutableCharacterStatsAPI.SkillLevelAPI skill : skills) {
@@ -80,6 +82,9 @@ public class PersonsSerializer {
         }
 
         person.getStats().setLevel(serializedPerson.getInt("level"));
+        if (serializedPerson.has("factionId")) {
+            person.setFaction(serializedPerson.getString("factionId"));
+        }
         if(serializedPerson.getBoolean("isAiCore")){
             person.setAICoreId(serializedPerson.getString("aiCoreId"));
         }
@@ -148,6 +153,9 @@ public class PersonsSerializer {
         }
         if (diff.has("sprite")) {
             person.setPortraitSprite(diff.getJSONObject("sprite").getString("value"));
+        }
+        if (diff.has("factionId")) {
+            person.setFaction(diff.getJSONObject("factionId").getString("value"));
         }
         if (diff.has("level")) {
             person.getStats().setLevel(diff.getJSONObject("level").getInt("value"));
