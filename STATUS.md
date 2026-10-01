@@ -63,6 +63,8 @@ rm -rf "$S" && mkdir -p "$S/mod" && javac --release 17 -nowarn -encoding UTF-8 -
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
+- [ ] Closing the server (or losing the connection) while a client is in a dialog: the client's fleet name loses
+      " [PAUSED]" (`a546ef8`); a save that has it loses it on loading.
 - [ ] Clock (`3ec8821`): a client's date no longer jumps an hour every few seconds (the log no longer says "Clock
       set to the server's" every few seconds; it still does after a host fast-forward or a long dialog).
 - [ ] Debris (`9dc2dfb`): a player joining after a battle gets its debris field ("The world has N battle debris
