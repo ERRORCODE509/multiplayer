@@ -8,6 +8,7 @@ import com.fs.starfarer.api.campaign.CampaignFleetAPI;
 import com.fs.starfarer.api.campaign.LocationAPI;
 import com.fs.starfarer.api.campaign.SectorEntityToken;
 import com.fs.starfarer.api.impl.campaign.ids.MemFlags;
+import com.fs.starfarer.api.util.Misc;
 import com.fs.starfarer.campaign.Faction;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.updates.BattleSync;
@@ -18,7 +19,10 @@ import matlabmaster.multiplayer.utils.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Objects;
@@ -96,7 +100,10 @@ public class ClientScripts implements EveryFrameScript {
         if (client == null || !client.isConnected()) {
             //put back any sector scripts taken out while we were not the authority, so they are not lost
             sectorScriptsUtility.restoreScripts();
-            if (factionSent != null) PlayerFactions.hideAll(); //just disconnected: nobody else is here any more
+            if (factionSent != null) { //just disconnected: nobody else is here any more
+                PlayerFactions.hideAll();
+                notify("Disconnected from the multiplayer server");
+            }
             factionSent = null;
             coloniesSent = null;
             debrisKnown.clear();
@@ -247,12 +254,14 @@ public class ClientScripts implements EveryFrameScript {
                     if (isOwnFleet(message.getJSONObject("fleet").getString("id"))) break;
                     FleetSerializer.unSerializeFleet(message.getJSONObject("fleet"),Global.getFactory().createEmptyFleet(Faction.NO_FACTION,true));
                     break;
-                case "playerLeft":
+                case "playerLeft": {
                     FleetHelper.removeFleetById(message.getString("id"));
-                    client.players.remove(message.getString("id"));
+                    String name = client.players.remove(message.getString("id"));
+                    if (name != null) notify(name + " left the game");
                     client.showPlayers();
                     MultiplayerLog.log().info("[LEFT] " + message.optString("name", message.getString("id")) + " left the game");
                     break;
+                }
                 case "players": {
                     //who's here, on joining (us too); the window lists them
                     JSONArray players = message.getJSONArray("players");
@@ -261,11 +270,17 @@ public class ClientScripts implements EveryFrameScript {
                         client.players.put(players.getJSONObject(p).getString("id"), players.getJSONObject(p).getString("name"));
                     }
                     client.showPlayers();
+                    List<String> others = new ArrayList<>();
+                    for (Map.Entry<String, String> player : client.players.entrySet()) {
+                        if (!player.getKey().equals(client.clientId)) others.add(player.getValue());
+                    }
+                    notify(others.isEmpty() ? "Joined the server: nobody else is here yet" : "Joined the server with " + String.join(", ", others));
                     break;
                 }
                 case "playerJoined":
                     client.players.put(message.getString("id"), message.optString("name", message.getString("id")));
                     client.showPlayers();
+                    notify(message.optString("name", "A player") + " joined the game");
                     MultiplayerLog.log().info("[JOINED] " + message.optString("name", message.getString("id")) + " joined the game");
                     break;
                 case "debrisFields": {
@@ -564,6 +579,11 @@ public class ClientScripts implements EveryFrameScript {
         } catch (Exception e) {
             MultiplayerLog.log().error("Couldn't send our colonies to the server", e);
         }
+    }
+
+    /** A line in the campaign's message log (bottom left), for what the player should notice without the window. */
+    private static void notify(String text) {
+        if (Global.getSector().getCampaignUI() != null) Global.getSector().getCampaignUI().addMessage(text, Misc.getHighlightColor());
     }
 
     /** Our own player fleet, which only we are in charge of: never replaced by a copy from someone else. */
