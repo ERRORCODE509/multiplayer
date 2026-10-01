@@ -89,7 +89,7 @@ public class FleetSerializer {
                 fleet.setAIMode((Boolean) value);
                 break;
             case "name":
-                fleet.setName((String) value);
+                setFleetName(fleet, (String) value);
         }
     }
 
@@ -375,7 +375,23 @@ public class FleetSerializer {
         //    }
         //}
 
+        setFleetName(fleet, serializedFleet.getString("name")); //again, now that it has its commander
+    }
 
+    /**
+     * Another player's fleet is in the player faction here, which the game shows as "Your <name>": shown as
+     * "<their name>'s Fleet" instead (keeping the [PAUSED] mark while they're in a dialog). Any other fleet keeps
+     * its name as it is.
+     */
+    private static void setFleetName(CampaignFleetAPI fleet, String name) {
+        if (!fleet.hasTag("playerFleet") || fleet.isPlayerFleet()) {
+            fleet.setName(name);
+            return;
+        }
+        PersonAPI commander = fleet.getCommander();
+        String player = commander == null ? "" : commander.getNameString().trim();
+        fleet.setNoFactionInName(true);
+        fleet.setName((player.isEmpty() ? "Player" : player) + "'s Fleet" + (name.endsWith(" [PAUSED]") ? " [PAUSED]" : ""));
     }
 
     public static JSONObject serializeAbilities(Map<String, AbilityPlugin> abilities) throws JSONException {
