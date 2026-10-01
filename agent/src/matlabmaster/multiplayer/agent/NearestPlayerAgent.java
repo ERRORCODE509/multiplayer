@@ -10,7 +10,8 @@ import java.util.Set;
 /**
  * Java agent (-javaagent:MultiplayerAgent.jar, added by the multiplayer launcher): as the vanilla fleet managers
  * load, rewrites their "distance to the player" calls to NearestPlayer, so they measure to the nearest connected
- * player. Nothing else is touched, and nothing on disk changes.
+ * player; and as the campaign engine loads, routes its location updates through FullRateLocations, so every
+ * location a player is in runs every frame. Nothing else is touched, and nothing on disk changes.
  *
  * Option: -javaagent:MultiplayerAgent.jar=classes=a/b/C;d/e/F replaces the list of classes to patch (internal
  * names), e.g. to add another mod's fleet manager.
@@ -18,6 +19,10 @@ import java.util.Set;
 public class NearestPlayerAgent {
     static final String MISC = "com/fs/starfarer/api/util/Misc";
     static final String HELPER = "matlabmaster/multiplayer/agent/NearestPlayer";
+    static final String ENGINE = "com/fs/starfarer/campaign/CampaignEngine";
+    static final String FULL_RATE = "matlabmaster/multiplayer/agent/FullRateLocations";
+    /** The location calls in CampaignEngine.advance (0.98a): fast-advance branch, then the normal one. */
+    static final int ENGINE_CALLS = 17;
     static final String[] DEFAULT_CLASSES = {
         "com/fs/starfarer/api/impl/campaign/fleets/RouteManager",
         "com/fs/starfarer/api/impl/campaign/fleets/SourceBasedFleetManager",
@@ -35,7 +40,7 @@ public class NearestPlayerAgent {
         //even ConcurrentHashMap's internals aren't loaded yet; loading one later goes through the transformer, which
         //needs it itself: ClassCircularityError, and the JVM refuses to start
         preload("java.util.concurrent.ConcurrentHashMap$ForwardingNode", "java.util.concurrent.ConcurrentHashMap$ReservationNode",
-                "matlabmaster.multiplayer.agent.ClassPatcher");
+                "matlabmaster.multiplayer.agent.ClassPatcher", "matlabmaster.multiplayer.agent.ClassPatcher$Target");
         System.getProperties().put(NearestPlayer.ACTIVE_KEY, Boolean.TRUE);
         Transformer transformer = new Transformer(classes);
         transformer.transform(null, "", null, null, new byte[0]); //runs once outside class loading, so it's all linked
@@ -61,6 +66,38 @@ public class NearestPlayerAgent {
         return p;
     }
 
+    /**
+     * The campaign engine: its location calls in advance() go to FullRateLocations, so the locations players are in
+     * run every frame, not in one-second steps. Only when the class has exactly the calls this was written for
+     * (game version 0.98a); anything else is left as vanilla, since half of them redirected would run locations twice.
+     */
+    static byte[] patchEngine(byte[] bytes) {
+        try {
+            ClassPatcher p = enginePatcher();
+            byte[] patched = p.patch(bytes);
+            if (patched == null || p.patchedCalls() != ENGINE_CALLS) {
+                System.out.println("[multiplayer agent] " + ENGINE + ": found " + p.patchedCalls() + " of the " + ENGINE_CALLS
+                        + " location calls expected (another game version?), left as vanilla: locations away from the server's own fleet run in one-second steps");
+                return null;
+            }
+            System.out.println("[multiplayer agent] " + ENGINE + ": locations with a player in them run every frame (" + ENGINE_CALLS + " calls)");
+            return patched;
+        } catch (Throwable t) {
+            System.out.println("[multiplayer agent] couldn't patch " + ENGINE + ", left as vanilla: " + t);
+            return null;
+        }
+    }
+
+    public static ClassPatcher enginePatcher() {
+        ClassPatcher p = new ClassPatcher();
+        for (String owner : new String[]{"com/fs/starfarer/campaign/BaseLocation", "com/fs/starfarer/campaign/Hyperspace"}) {
+            p.redirectVirtual(owner, "advanceEvenIfPaused", "(FLcom/fs/starfarer/util/A/new;)V", FULL_RATE, "(Ljava/lang/Object;FLjava/lang/Object;)V");
+            p.redirectVirtual(owner, "advance", "(FLcom/fs/starfarer/util/A/new;)V", FULL_RATE, "(Ljava/lang/Object;FLjava/lang/Object;)V");
+            p.redirectVirtual(owner, "setActiveThisFrame", "(Z)V", FULL_RATE, "(Ljava/lang/Object;Z)V");
+        }
+        return p;
+    }
+
     static class Transformer implements ClassFileTransformer {
         private final Set<String> classes;
 
@@ -70,6 +107,7 @@ public class NearestPlayerAgent {
 
         @Override
         public byte[] transform(ClassLoader loader, String className, Class<?> redefined, ProtectionDomain domain, byte[] bytes) {
+            if (ENGINE.equals(className)) return patchEngine(bytes);
             if (className == null || !classes.contains(className)) return null;
             try {
                 ClassPatcher p = patcher();

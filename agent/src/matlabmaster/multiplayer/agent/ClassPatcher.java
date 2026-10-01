@@ -8,18 +8,40 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Redirects static method calls in a class file: every invokestatic of owner.name(desc) listed in the redirects
- * becomes an invokestatic of the same name and descriptor on another class. Only the constant pool grows (a Class
- * and a Methodref per redirected method are appended) and the 2-byte operand of each call is rewritten in place,
- * so no instruction moves, no jump or stack map needs updating, and the result verifies like the original.
+ * Redirects method calls in a class file to static methods of another class: every invokestatic of owner.name(desc)
+ * listed in the redirects becomes an invokestatic of the same name and descriptor on another class, and every
+ * invokevirtual of a listed owner.name(desc) becomes an invokestatic of the same name taking the receiver as its
+ * first argument. Both instructions are 3 bytes and take the same stack, so only the constant pool grows (the new
+ * Class, NameAndType and Methodref constants are appended) and each call is rewritten in place: no instruction
+ * moves, no jump or stack map needs updating, and the result verifies like the original.
  */
 public class ClassPatcher {
+    /** Where one method's calls go: the new owner, and for an invokevirtual the static method's descriptor. */
+    private static final class Target {
+        final String newOwner;
+        final String newDesc; //null: same descriptor (static to static)
+
+        Target(String newOwner, String newDesc) {
+            this.newOwner = newOwner;
+            this.newDesc = newDesc;
+        }
+    }
+
     /** "owner.name(desc)" of the original call, e.g. "com/fs/starfarer/api/util/Misc.getDistanceLY(...)F". */
-    private final Map<String, String> redirects = new HashMap<>(); //original key -> new owner
+    private final Map<String, Target> redirects = new HashMap<>();
     private int patchedCalls;
 
+    /** invokestatic owner.name(desc) becomes invokestatic newOwner.name(desc). */
     public void redirect(String owner, String name, String desc, String newOwner) {
-        redirects.put(owner + "." + name + desc, newOwner);
+        redirects.put(owner + "." + name + desc, new Target(newOwner, null));
+    }
+
+    /**
+     * invokevirtual owner.name(desc) becomes invokestatic newOwner.name(newDesc), where newDesc takes the receiver
+     * first. Its parameter types only have to accept what's on the stack (e.g. Object for an obfuscated class).
+     */
+    public void redirectVirtual(String owner, String name, String desc, String newOwner, String newDesc) {
+        redirects.put(owner + "." + name + desc, new Target(newOwner, newDesc));
     }
 
     /** How many calls the last patch() rewrote. */
@@ -52,8 +74,8 @@ public class ClassPatcher {
         }
         int poolEnd = in.position();
 
-        //which Methodrefs to redirect: old index -> new owner
-        Map<Integer, String> targets = new HashMap<>();
+        //which Methodrefs to redirect: old index -> where to
+        Map<Integer, Target> targets = new HashMap<>();
         for (int i = 1; i < count; i++) {
             if (tags[i] != 10) continue; //Methodref
             int classIdx = in.getShort(offsets[i] + 1) & 0xFFFF;
@@ -61,26 +83,35 @@ public class ClassPatcher {
             String owner = utf(in, offsets, in.getShort(offsets[classIdx] + 1) & 0xFFFF);
             String name = utf(in, offsets, in.getShort(offsets[natIdx] + 1) & 0xFFFF);
             String desc = utf(in, offsets, in.getShort(offsets[natIdx] + 3) & 0xFFFF);
-            String newOwner = redirects.get(owner + "." + name + desc);
-            if (newOwner != null) targets.put(i, newOwner);
+            Target target = redirects.get(owner + "." + name + desc);
+            if (target != null) targets.put(i, target);
         }
         if (targets.isEmpty()) return null;
 
-        //append the new constants: Utf8 + Class per new owner, then a Methodref per redirected method
+        //append the new constants: Utf8 + Class per new owner, a Utf8 + NameAndType per new descriptor, then a
+        //Methodref per redirected method
         ByteArrayOutputStream extra = new ByteArrayOutputStream();
         DataOutputStream out = new DataOutputStream(extra);
         int next = count;
         Map<String, Integer> ownerClass = new HashMap<>();
-        Map<Integer, Integer> newIndex = new HashMap<>();
-        for (Map.Entry<Integer, String> t : targets.entrySet()) {
-            Integer cls = ownerClass.get(t.getValue());
+        Map<Integer, Integer> newIndex = new HashMap<>(); //static to static
+        Map<Integer, Integer> newVirtualIndex = new HashMap<>(); //virtual to static
+        for (Map.Entry<Integer, Target> t : targets.entrySet()) {
+            Target target = t.getValue();
+            Integer cls = ownerClass.get(target.newOwner);
             if (cls == null) {
-                out.writeByte(1); out.writeUTF(t.getValue()); int utf = next++;
+                out.writeByte(1); out.writeUTF(target.newOwner); int utf = next++;
                 out.writeByte(7); out.writeShort(utf); cls = next++;
-                ownerClass.put(t.getValue(), cls);
+                ownerClass.put(target.newOwner, cls);
             }
-            out.writeByte(10); out.writeShort(cls); out.writeShort(in.getShort(offsets[t.getKey()] + 3) & 0xFFFF);
-            newIndex.put(t.getKey(), next++);
+            int nat = in.getShort(offsets[t.getKey()] + 3) & 0xFFFF;
+            if (target.newDesc != null) {
+                int nameIdx = in.getShort(offsets[nat] + 1) & 0xFFFF;
+                out.writeByte(1); out.writeUTF(target.newDesc); int descIdx = next++;
+                out.writeByte(12); out.writeShort(nameIdx); out.writeShort(descIdx); nat = next++;
+            }
+            out.writeByte(10); out.writeShort(cls); out.writeShort(nat);
+            (target.newDesc == null ? newIndex : newVirtualIndex).put(t.getKey(), next++);
         }
         if (next > 0xFFFF) throw new IOException("constant pool full");
 
@@ -103,7 +134,7 @@ public class ClassPatcher {
                 if (attrName.equals("Code")) {
                     int codeStart = attrStart + 8; //max_stack, max_locals, code_length
                     int codeLen = r.getInt(attrStart + 4);
-                    rewriteCode(r, codeStart, codeLen, newIndex);
+                    rewriteCode(r, codeStart, codeLen, newIndex, newVirtualIndex);
                 }
                 r.position(attrStart + len);
             }
@@ -118,14 +149,16 @@ public class ClassPatcher {
         return result.toByteArray();
     }
 
-    private void rewriteCode(ByteBuffer r, int start, int length, Map<Integer, Integer> newIndex) throws IOException {
+    private void rewriteCode(ByteBuffer r, int start, int length, Map<Integer, Integer> newIndex,
+                             Map<Integer, Integer> newVirtualIndex) throws IOException {
         int pc = 0;
         while (pc < length) {
             int op = r.get(start + pc) & 0xFF;
-            if (op == 0xB8) { //invokestatic
+            if (op == 0xB8 || op == 0xB6) { //invokestatic, invokevirtual
                 int idx = r.getShort(start + pc + 1) & 0xFFFF;
-                Integer replacement = newIndex.get(idx);
+                Integer replacement = (op == 0xB8 ? newIndex : newVirtualIndex).get(idx);
                 if (replacement != null) {
+                    r.put(start + pc, (byte) 0xB8);
                     r.putShort(start + pc + 1, (short) (int) replacement);
                     patchedCalls++;
                 }

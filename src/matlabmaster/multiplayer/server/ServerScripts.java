@@ -12,7 +12,10 @@ import matlabmaster.multiplayer.utils.ClockUtility;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Runs on the game thread of the game hosting the server, which is the only authority: this game's NPC fleets,
@@ -29,6 +32,11 @@ public class ServerScripts implements EveryFrameScript {
      */
     public static final String PLAYER_POSITIONS_KEY = "multiplayer.nearestPlayer.positions";
     private static final String AGENT_ACTIVE_KEY = "multiplayer.nearestPlayer.active";
+    /**
+     * The locations the players are in, for the agent: vanilla runs every location but this game's own player
+     * fleet's in one-second steps, and the agent runs these every frame instead. A Set of LocationAPI, same idea.
+     */
+    public static final String FULL_RATE_LOCATIONS_KEY = "multiplayer.fullRate.locations";
 
     /** Hides a dedicated server's own player fleet from the NPC fleets of its world (nobody plays it). */
     private static final String HIDDEN_ID = "multiplayer_dedicated_server";
@@ -135,6 +143,7 @@ public class ServerScripts implements EveryFrameScript {
     private void stopped() {
         wasRunning = false;
         System.getProperties().remove(PLAYER_POSITIONS_KEY); //back to vanilla spawning
+        System.getProperties().remove(FULL_RATE_LOCATIONS_KEY); //and to vanilla location updates
         hideOwnFleet(false);
         //a dedicated server kept copies of the players' fleets: they don't belong in its game
         List<CampaignFleetAPI> copies = new ArrayList<>();
@@ -155,10 +164,13 @@ public class ServerScripts implements EveryFrameScript {
      */
     private void publishPlayerPositions() {
         List<Float> xy = new ArrayList<>();
+        Set<LocationAPI> withPlayers = Collections.newSetFromMap(new IdentityHashMap<>());
         for (LocationAPI location : Global.getSector().getAllLocations()) {
             for (CampaignFleetAPI fleet : location.getFleets()) {
                 boolean player = fleet.isPlayerFleet() ? !serverInstance.isDedicated() : fleet.hasTag("playerFleet");
-                if (!player || fleet.getLocationInHyperspace() == null) continue;
+                if (!player) continue;
+                withPlayers.add(location);
+                if (fleet.getLocationInHyperspace() == null) continue;
                 xy.add(fleet.getLocationInHyperspace().x);
                 xy.add(fleet.getLocationInHyperspace().y);
             }
@@ -166,6 +178,7 @@ public class ServerScripts implements EveryFrameScript {
         float[] positions = new float[xy.size()];
         for (int i = 0; i < positions.length; i++) positions[i] = xy.get(i);
         System.getProperties().put(PLAYER_POSITIONS_KEY, positions);
+        System.getProperties().put(FULL_RATE_LOCATIONS_KEY, withPlayers);
     }
 
     private void hideOwnFleet(boolean hide) {
