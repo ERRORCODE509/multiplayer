@@ -58,9 +58,11 @@ Unlicense, as its developer stated (also in `LICENSE`).
   `{id, ok, data | error}`, run a few per frame on the game thread.
   Reads: `status` (role HOST/GUEST/NONE, clock, player fleet, multiplayer block: players, client id, faction),
   `fleets` ({locationId?|"all", near?}), `cargo`, `markets`, `market` ({marketId}, no restock), `entities`
-  ({locationId?}: orbit angles), `screen`. Actions: `pause` (connected games unpause themselves), `teleport`,
+  ({locationId?}: orbit angles), `screen`, `raids` (every FleetGroupIntel: `world:<id>` / `handed:<id>`, action,
+  fleets, targets' stability/unrest/disruption). Actions: `pause` (connected games unpause themselves), `teleport`,
   `give`, `addship`, `setcr`, `ability`, `rep` ({factionId, value}), `mark` ({text} -> "[AGENT MARK]" in the log),
-  `memory`. Works in-game (status, fleets, entities, ss_diff checked). `entities` skips asteroids: they're never
+  `memory`, `raid` ({factionId = pirates, marketId?, sourceId?, fleets = [3, 2], prepDays = 1, payloadDays = 20}:
+  a crisis-like raid on the player's colony). Works in-game (status, fleets, entities, ss_diff checked). `entities` skips asteroids: they're never
   synced (each game's belts and fields make their own, with their own ids).
 - Fleet ids are the same in every game of a session, so `ss_diff(what: "fleets", args: {near: 3000, around:
   "<client id>"})` compares the server's and a client's view around the client's fleet (the server has every fleet,
@@ -71,7 +73,7 @@ Unlicense, as its developer stated (also in `LICENSE`).
 - The **server's game is the only authority on the world** (NPC fleets, clock, markets, economy); each **player's
   game is the authority on their own fleet, reputation and colonies**. Clients strip sector scripts while connected
   (`utils/SectorScriptsUtility`, keeps core-engine scripts and `BaseEventIntel` events) and show server-driven copies.
-- Protocol version 6 (`server/Server.PROTOCOL_VERSION`). Join: `welcome` (client id) -> client sends `hello` (permanent
+- Protocol version 7 (`server/Server.PROTOCOL_VERSION`). Join: `welcome` (client id) -> client sends `hello` (permanent
   player id from `utils/PlayerIdentity`, name) -> server reserves a player faction (`server/PlayerRegistry`, kept in
   the world save's persistent data) and replies `yourFaction`.
 - `server/Server` message dispatch (network threads; game work goes through `gameThreadTasks`). `server/ServerScripts`
@@ -87,11 +89,38 @@ Unlicense, as its developer stated (also in `LICENSE`).
 - Shared: `utils/PlayerFactions` (32 player factions `mp_player_N` in `data/world/factions`), `utils/ColonyMirrors`
   (other players' colonies: in the server's economy, display-only elsewhere), `updates/MarketSync`, `BattleSync`,
   `DebrisSync`, `utils/FleetSerializer`/`PersonsSerializer`.
+- Crisis raids (`updates/RaidSync`, `server/ServerRaids`, `client/OwnRaids`): the owner's crisis makes a raid
+  (GenericRaidFGI and subclasses, not blockades); their game hands it over (`raidHandOver`), keeps its own frozen
+  (out of the scripts, route removed, kept in its save) and the server's game makes the same one on the world's
+  copy of the colony (same market ids), kept in the world's save. Its fleets are world NPC fleets: every player
+  sees them, and battles against them (BattleSync) make the vanilla raid abort. The server sends `raidAction`
+  (intel updates), `raidEnded` (aborted -> the owner's raid aborts, so the crisis counts it as beaten; finished;
+  cancelled) and `colonyHit` (unrest, disruption, pollution the world's copies of colonies took, from any raid);
+  queued in the registry while the owner is offline. The owner's crisis ending it sends `raidCallOff`.
+  `utils/FleetFlags`: NPC fleets carry their `$cfai_makeHostile_<faction>` and rep-impact flags to the copies
+  (made hostile to your faction = hostile to you); the raid's plain `$cfai_makeHostile` (the host) is cleared.
 - Agent (`-javaagent`, added by the launcher): `NearestPlayer` (fleet spawning around every player),
   `FullRateLocations` (locations with a player run every frame; patches `CampaignEngine.advance`, 17 calls).
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
+- [ ] **Crisis raids run in the world (`d47eedc`, protocol 7, untested).** Rebuild both jars, restart both games.
+  Quickest: bridge `ss_act raid` in the player's game (guest) while connected, with a colony
+  (`{factionId: "pirates", fleets: [3, 2], prepDays: 1}`); a real crisis raid works the same way.
+  1. Guest log: "A Pirate Raid is coming for <system>: the world runs it (<id>)"; server log: "<name> handed over a
+     raid on their colony", "The world runs a Pirate Raid on <system> (from <market>)". `ss_dump raids` on both:
+     guest `handed:<id>`, `running: false`; host `world:<id>`, `running: true`.
+  2. The raid's fleets appear near players as it travels (any player within ~1.6 LY of its route), are hostile to
+     the colony's owner (tooltip, they chase and intercept them) and seen by every player; for the others they're
+     as hostile as their faction is to them (pirates: hostile). The owner's intel updates as it launches/arrives.
+  3. Any player (not only the owner) beating most of its fleets: the server log says it "was defeated or called
+     off", the owner's log "The Pirate Raid on <system> was defeated" and their intel shows it defeated (a real
+     crisis then counts it as beaten, e.g. piracy respite).
+  4. Left alone, it raids the world's copy of the colony: server log "<colony> (<player>) was hit: {...}", owner's
+     log "The world's raid hit <colony>: -N stability (Pirate raid)..." and the colony screen shows the unrest
+     (and any disruption).
+  5. Owner offline meanwhile: the news (hits, how it ended) arrives when they join again.
+  Not handed over: blockades (Persean League, Knights of Ludd takeover), which still wait while connected.
 Tested by the user on 2026-10-01: smoothing (good now), players list, no PvP, [PAUSED] (probably), jump flash (players
 only), hosting/tariff, setting the tariff, left alone in dialogs, orbit after a dialog (not while sped up), rename,
 jumping between locations, construction catch-up, reputation sound (mostly: sometimes doesn't play).
@@ -168,21 +197,11 @@ mirrors (name, accessibility, stability), markets, full-rate locations (smooth f
 hyperspace gravity wells, factions shown in the intel tab only while connected.
 
 ## Known limits / ideas (not started)
-- Crisis raids' fleets don't move while their owner is connected (they go through RouteManager, off on clients).
-  Needs a decision: turning RouteManager on in a client would also run every route in its own save (trade fleets,
-  patrols...) and duplicate the world's fleets; the raid would have to run in the world (server) or only the raid's
-  routes in the client.
-  How it works (API source): a raid is a FleetGroupIntel (GenericRaidFGI and subclasses: Persean League, Diktat,
-  TT mercenaries; made by the HostileActivity factors), a sector script (stripped on clients: it isn't a
-  BaseEventIntel) with a RouteManager route. RouteManager.spawnAndDespawn spawns its fleets (route.spawner
-  .spawnFleet) when the player is within SPAWN_DIST_LY 1.6 of route.getInterpolatedHyperLocation(), despawns far
-  and unseen; far from the player, the FGI resolves along its route without fleets. Target:
-  GenericRaidFGI.getParams().raidParams.where (StarSystemAPI).
-  Proposal (owner's game runs its own raids): SectorScriptsUtility keeps FleetGroupIntel scripts whose target
-  system has a colony of this player; a small runner does RouteManager's part for just their routes (advance the
-  route, spawn within 1.6 LY, despawn as vanilla). The raiders are local fleets of the owner's game with a real AI,
-  raiding the real colony. Limits: other players don't see them (not synced; later the owner could send them like
-  the server sends NPC fleets); a raid on a colony whose owner is offline doesn't happen until they're back.
+- Crisis blockades (Persean League blockade, Knights of Ludd takeover) still wait while their owner is connected:
+  they change the colony (accessibility, its owner) in ways the world's copy can't pass on yet. Raids and punitive
+  expeditions run in the world (see Architecture). Limits there: a saturation bombardment's size loss isn't
+  passed on (only unrest, disruption, pollution); a raid whose source market isn't in the world starts from the
+  faction's nearest one; the world tracks hits on colonies only while it's hosting.
 - Visitors' prices at a player's colony come from their own game's copy (out of its economy): may differ.
 - Salvage loot isn't shared, and a later battle adding to an existing field doesn't update the others' copies.
 - Clock: a client stays up to 5 game minutes (the dead band) behind the server, plus the network delay.
