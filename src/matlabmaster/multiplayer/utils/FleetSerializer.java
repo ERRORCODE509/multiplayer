@@ -61,15 +61,11 @@ public class FleetSerializer {
         Object value = instruction.get("value");
         switch (key) {
             case "locationX":
-                // Use ((Number) value).doubleValue() to handle both Integer and Double safely
-                if (Math.abs(fleet.getLocation().getX() - ((Number) value).doubleValue()) > 50) {
-                    fleet.setLocation(((Number) value).floatValue(), fleet.getLocation().getY());
-                }
+                //made up gradually when it's drifted off (see PositionSmoothing); Number: Integer or Double
+                PositionSmoothing.toward(fleet, ((Number) value).floatValue(), Float.NaN);
                 break;
             case "locationY":
-                if (Math.abs(fleet.getLocation().getY() - ((Number) value).doubleValue()) > 50) {
-                    fleet.setLocation(fleet.getLocation().getX(), ((Number) value).floatValue());
-                }
+                PositionSmoothing.toward(fleet, Float.NaN, ((Number) value).floatValue());
                 break;
             case "location":
                 LocationAPI area;
@@ -84,6 +80,7 @@ public class FleetSerializer {
                 //copy was stuck there was sent no NPC fleets at all. Its position comes with the same update
                 LocationAPI from = fleet.getContainingLocation();
                 fleet.setOrbit(null);
+                PositionSmoothing.forget(fleet); //its position there is new, not a correction
                 if (from != null) from.removeEntity(fleet);
                 area.addEntity(fleet);
                 break;
@@ -346,6 +343,7 @@ public class FleetSerializer {
         //so that their positions are not send via the globalFleetSync
         if(serializedFleet.getBoolean("isPlayerFleet")){
             fleet.addTag("playerFleet");
+            PlayerEncounters.keepOutOfBattles(fleet); //players don't fight each other
         }
 
         if(Objects.equals(serializedFleet.getString("location"), "hyperspace")){

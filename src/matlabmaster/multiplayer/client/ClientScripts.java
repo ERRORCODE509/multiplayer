@@ -91,6 +91,7 @@ public class ClientScripts implements EveryFrameScript {
     @Override
     public void advance(float amount) {
         interactionOrbit.advance(); //connected or not: an orbit of ours lets go when the player moves
+        PositionSmoothing.advance(amount); //fleet copies' corrections, in every game (the server's too)
         if (client == null || !client.isConnected()) {
             //put back any sector scripts taken out while we were not the authority, so they are not lost
             sectorScriptsUtility.restoreScripts();
@@ -181,6 +182,7 @@ public class ClientScripts implements EveryFrameScript {
         sectorScriptsUtility.forgetScripts();
         interactionOrbit.forget();
         PauseUtility.clearPausedName(); //a save from before this was fixed may have it
+        PositionSmoothing.clear();
         //our battles against the world's NPC fleets: the server's must lose the same ships (transient: not in the save)
         Global.getSector().addTransientListener(new BaseCampaignEventListener(false) {
             @Override

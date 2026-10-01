@@ -10,6 +10,7 @@ import matlabmaster.multiplayer.listeners.MultiplayerWatchdog;
 import matlabmaster.multiplayer.server.Server;
 import matlabmaster.multiplayer.server.ServerScripts;
 import matlabmaster.multiplayer.ui.UI;
+import matlabmaster.multiplayer.utils.PlayerEncounters;
 import matlabmaster.multiplayer.utils.PlayerFactions;
 
 import java.util.Objects;
@@ -61,6 +62,7 @@ public class MultiplayerModPlugin extends BaseModPlugin {
         super.onGameLoad(newGame);
         //whether a player faction is listed is saved with it: nobody is connected to a game that just loaded
         PlayerFactions.hideAll();
+        PlayerEncounters.register(); //players don't fight each other: meeting one opens a dialog with no combat
 
         if (clientScriptsInstance == null) { //ensure only one client script exist at any time
             clientScriptsInstance = new ClientScripts(clientInstance);
