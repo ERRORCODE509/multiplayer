@@ -1,6 +1,8 @@
 package matlabmaster.multiplayer;
 
 import com.fs.starfarer.api.BaseModPlugin;
+import com.fs.starfarer.api.EveryFrameScript;
+import com.fs.starfarer.api.GameState;
 import com.fs.starfarer.api.Global;
 import matlabmaster.multiplayer.client.Client;
 import matlabmaster.multiplayer.client.ClientScripts;
@@ -70,7 +72,28 @@ public class MultiplayerModPlugin extends BaseModPlugin {
         MultiplayerLog.log().info("registered scripts");
 
         if (SERVER_MODE && !serverInstance.isRunning) {
-            startServerInstance();
+            //onGameLoad runs while the game still counts as the main menu (Server.start refuses that): host from the
+            //first campaign frame instead
+            Global.getSector().addTransientScript(new EveryFrameScript() {
+                private boolean done;
+
+                @Override
+                public boolean isDone() {
+                    return done;
+                }
+
+                @Override
+                public boolean runWhilePaused() {
+                    return true;
+                }
+
+                @Override
+                public void advance(float amount) {
+                    if (done || Global.getCurrentState() != GameState.CAMPAIGN) return;
+                    done = true;
+                    if (!serverInstance.isRunning) startServerInstance();
+                }
+            });
         }
     }
 
