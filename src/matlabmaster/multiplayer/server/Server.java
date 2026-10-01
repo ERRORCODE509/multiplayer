@@ -27,7 +27,7 @@ import org.json.JSONObject;
 
 public class Server {
     /** Bump whenever client and server messages change in a way an older version can't handle; checked on join. */
-    public static final int PROTOCOL_VERSION = 4; //2: the server's game is the only authority. 3: player factions, markets. 4: hello (player ids), colonies
+    public static final int PROTOCOL_VERSION = 5; //2: the server's game is the only authority. 3: player factions, markets. 4: hello (player ids), colonies. 5: trade at colonies
 
     private int port;
     private ServerSocket serverSocket;
@@ -58,6 +58,8 @@ public class Server {
     public final Map<String, String> clientPlayers = new ConcurrentHashMap<>();
     /** Every player who has joined this world: their factions, looks and colonies, kept in its save. */
     public final PlayerRegistry registry = new PlayerRegistry();
+    /** Gives players markets' stock and takes their trades, players' colonies included (game thread). */
+    public final ServerMarkets markets = new ServerMarkets(this);
     /** Sends the world's faction relations and the players' factions to the clients (game thread). */
     public final ServerFactionSync factionSync = new ServerFactionSync(this);
     /** Connected players this game has no copy of the fleet of (game thread only), so it's only logged once. */
@@ -84,6 +86,15 @@ public class Server {
 
     public boolean isDedicated() {
         return dedicated;
+    }
+
+    /** The connected client of a player (their permanent player id), or null if they're offline. */
+    public String clientOf(String playerId) {
+        if (playerId == null) return null;
+        for (Map.Entry<String, String> entry : clientPlayers.entrySet()) {
+            if (playerId.equals(entry.getValue())) return entry.getKey();
+        }
+        return null;
     }
 
     /** Whether this is the host's own client, which shares this game ("host current game"). */
@@ -309,34 +320,19 @@ public class Server {
                     gameThreadTasks.add(() -> factionSync.playerFaction(clientId, json));
                     break;
                 case "requestMarket":
-                    //a player opened a market: the world's stock, restocked as vanilla does on opening
+                    //a player opened a market: its stock (see ServerMarkets)
                     String marketId = json.getString("marketId");
-                    gameThreadTasks.add(() -> {
-                        try {
-                            MarketAPI market = Global.getSector().getEconomy().getMarket(marketId);
-                            if (market == null || !MarketSync.hasShared(market)) return;
-                            JSONObject reply = new JSONObject();
-                            reply.put("commandId", "marketSnapshot");
-                            reply.put("snapshot", MarketSync.snapshot(market, true));
-                            sendTo(clientId, reply.toString());
-                        } catch (Exception e) {
-                            MultiplayerLog.log().error("Failed to send market " + marketId + " to " + clientId, e);
-                        }
-                    });
+                    gameThreadTasks.add(() -> markets.request(clientId, marketId));
                     break;
                 case "marketTrade":
-                    //what a player bought and sold: into the world's stock
-                    gameThreadTasks.add(() -> {
-                        try {
-                            JSONObject trade = json.getJSONObject("trade");
-                            MarketAPI market = Global.getSector().getEconomy().getMarket(trade.getString("marketId"));
-                            if (market == null) return;
-                            MarketSync.applyTrade(market, trade);
-                            MultiplayerLog.log().info(clientId + " traded at " + market.getName());
-                        } catch (Exception e) {
-                            MultiplayerLog.log().error("Failed to apply a trade from " + clientId, e);
-                        }
-                    });
+                    //what a player bought and sold there
+                    JSONObject trade = json.getJSONObject("trade");
+                    gameThreadTasks.add(() -> markets.trade(clientId, trade));
+                    break;
+                case "colonyStock":
+                    //a player's colony's stock, from their game (it holds the real one)
+                    JSONObject snapshot = json.getJSONObject("snapshot");
+                    gameThreadTasks.add(() -> markets.stock(clientId, snapshot));
                     break;
                 default:
                     MultiplayerLog.log().warn("Unknown command: " + commandId);
@@ -377,6 +373,7 @@ public class Server {
         reply.put("faction", faction);
         sendTo(clientId, reply.toString());
         MultiplayerLog.log().info(clientId + " is " + name + " (" + playerId + "), faction " + faction);
+        markets.deliverQueuedTrades(clientId, playerId); //visitors' trades at their colonies while they were away
     }
 
     /** A player's fleet data (their fleet, its officers, or a diff) with their "player" faction made their player faction. */

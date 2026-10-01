@@ -19,7 +19,8 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * Stored as a plain String -> String map, so the save never depends on the mod's classes:
  * "faction:<playerId>" -> mp_player_N, "name:<playerId>" -> their name, "look:<mp_player_N>" -> look JSON,
- * "colonies:<playerId>" -> colonies JSON. A ConcurrentHashMap: the network threads reserve factions while the
+ * "colonies:<playerId>" -> colonies JSON, "trades:<playerId>" -> visitors' trades at their colonies while they were
+ * offline (JSON array, see ServerMarkets). A ConcurrentHashMap: the network threads reserve factions while the
  * game thread may be saving it.
  */
 public class PlayerRegistry {
@@ -102,6 +103,30 @@ public class PlayerRegistry {
 
     public void setColonies(String playerId, JSONArray colonies) {
         data.put("colonies:" + playerId, colonies.toString());
+    }
+
+    /** A visitor's trade at a player's colony while they were offline, for their game when they're back. */
+    public synchronized void queueTrade(String playerId, JSONObject trade) {
+        JSONArray trades = queuedTrades(playerId);
+        trades.put(trade);
+        data.put("trades:" + playerId, trades.toString());
+    }
+
+    /** The trades queued for a player (MarketSync trades), now theirs: removed from the queue. */
+    public synchronized JSONArray takeTrades(String playerId) {
+        JSONArray trades = queuedTrades(playerId);
+        data.remove("trades:" + playerId);
+        return trades;
+    }
+
+    private JSONArray queuedTrades(String playerId) {
+        String trades = data.get("trades:" + playerId);
+        if (trades == null) return new JSONArray();
+        try {
+            return new JSONArray(trades);
+        } catch (JSONException e) {
+            return new JSONArray();
+        }
     }
 
     /** Every player who has described colonies. */

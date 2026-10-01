@@ -87,6 +87,7 @@ public class ServerScripts implements EveryFrameScript {
 
         holdInteractionTargets();
         serverInstance.factionSync.advance(amount);
+        serverInstance.markets.advance(amount);
 
         boolean paused = Global.getSector().isPaused();
         if (serverInstance.isDedicated()) {

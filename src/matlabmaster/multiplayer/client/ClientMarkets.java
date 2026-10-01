@@ -1,5 +1,6 @@
 package matlabmaster.multiplayer.client;
 
+import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.SectorEntityToken;
 import com.fs.starfarer.api.campaign.econ.MarketAPI;
 import matlabmaster.multiplayer.MultiplayerLog;
@@ -15,13 +16,63 @@ public class ClientMarkets {
     private MarketAPI open;
     /** Its stock as the server's snapshot made it here: what the trade is measured against. */
     private JSONObject before;
+    /** Our own colony, while we're in a dialog there. */
+    private MarketAPI ownOpen;
+
+    /*
+     * Our own colonies trade like normal colonies: visitors trade at their open market (see MarketSync). This game
+     * holds the real stock, so the server asks it for the stock when someone visits, and gives it their trades.
+     */
+
+    /** The server wants one of our colonies' stock (a visitor opened it): restocked as vanilla does on opening. */
+    public void colonyStockRequest(Client client, String marketId) {
+        MarketAPI market = Global.getSector().getEconomy().getMarket(marketId);
+        if (market == null || !market.isPlayerOwned()) return;
+        sendColonyStock(client, market, true);
+    }
+
+    /** A visitor's trade at one of our colonies (now, or while we were away): into its real stock. */
+    public void colonyTrade(JSONObject trade) {
+        try {
+            MarketAPI market = Global.getSector().getEconomy().getMarket(trade.getString("marketId"));
+            if (market == null || !market.isPlayerOwned()) return; //not ours any more
+            MarketSync.applyTrade(market, trade, true);
+            MultiplayerLog.log().info("A visitor traded at " + market.getName());
+        } catch (Exception e) {
+            MultiplayerLog.log().error("Couldn't apply a visitor's trade at our colony", e);
+        }
+    }
+
+    /** All our colonies' stock, for visitors while we're away (on joining, restocked as if we'd just opened them). */
+    public void sendAllColonyStock(Client client) {
+        if (client.isSelfHosted) return; //the host's colonies are real in the server's game
+        for (MarketAPI market : Global.getSector().getEconomy().getMarketsCopy()) {
+            if (market.isPlayerOwned() && MarketSync.hasTradable(market)) sendColonyStock(client, market, true);
+        }
+    }
+
+    private void sendColonyStock(Client client, MarketAPI market, boolean restock) {
+        try {
+            JSONObject packet = new JSONObject();
+            packet.put("commandId", "colonyStock");
+            packet.put("snapshot", MarketSync.snapshot(market, restock, true));
+            client.send(packet.toString());
+        } catch (Exception e) {
+            MultiplayerLog.log().error("Couldn't send the stock of our colony " + market.getName(), e);
+        }
+    }
 
     /** A dialog opened (PauseUtility): if it's at a market everyone shares, ask the server for its stock. */
     public void dialogOpened(Client client, SectorEntityToken target) {
         open = null;
         before = null;
+        ownOpen = null;
         if (client.isSelfHosted || target == null) return; //the host's game is the world: its markets are the real ones
         MarketAPI market = target.getMarket();
+        if (market != null && market.isPlayerOwned() && MarketSync.hasTradable(market)) {
+            ownOpen = market; //our own colony: its stock is ours, the server gets it when we leave
+            return;
+        }
         if (!MarketSync.hasShared(market)) return;
         open = market;
         try {
@@ -48,6 +99,10 @@ public class ClientMarkets {
 
     /** The dialog closed (PauseUtility): what the player bought and sold goes to the server's market. */
     public void dialogClosed(Client client) {
+        if (ownOpen != null) {
+            sendColonyStock(client, ownOpen, false); //as we left it: what visitors find while we're away
+            ownOpen = null;
+        }
         MarketAPI market = open;
         JSONObject from = before;
         open = null;

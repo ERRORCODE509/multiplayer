@@ -1,13 +1,16 @@
 package matlabmaster.multiplayer.utils;
 
 import com.fs.starfarer.api.Global;
+import com.fs.starfarer.api.campaign.FactionAPI;
 import com.fs.starfarer.api.campaign.LocationAPI;
 import com.fs.starfarer.api.campaign.SectorEntityToken;
 import com.fs.starfarer.api.campaign.econ.Industry;
 import com.fs.starfarer.api.campaign.econ.MarketAPI;
 import com.fs.starfarer.api.campaign.econ.MarketConditionAPI;
+import com.fs.starfarer.api.campaign.econ.SubmarketAPI;
 import com.fs.starfarer.api.campaign.rules.MemoryAPI;
 import matlabmaster.multiplayer.MultiplayerLog;
+import matlabmaster.multiplayer.updates.MarketSync;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -63,6 +66,17 @@ public class ColonyMirrors {
                 industries.put(entry);
             }
             colony.put("industries", industries);
+            //what visitors can trade at (the open market, with Commerce), and on what terms
+            JSONArray submarkets = new JSONArray();
+            for (SubmarketAPI submarket : market.getSubmarketsCopy()) {
+                if (!MarketSync.isTradable(submarket)) continue;
+                JSONObject entry = new JSONObject();
+                entry.put("id", submarket.getSpecId());
+                if (submarket.getFaction() != null) entry.put("faction", submarket.getFaction().getId());
+                submarkets.put(entry);
+            }
+            colony.put("submarkets", submarkets);
+            colony.put("tariff", Math.round(market.getTariff().getModifiedValue() * 1000f) / 1000d);
             colonies.put(colony);
         }
         return colonies;
@@ -185,6 +199,28 @@ public class ColonyMirrors {
             }
         }
 
+        //the submarkets visitors can trade at, as the owner's colony has them (their stock comes per visit)
+        JSONArray wantedSubmarkets = colony.optJSONArray("submarkets");
+        if (wantedSubmarkets != null) {
+            Map<String, String> submarkets = new HashMap<>();
+            for (int i = 0; i < wantedSubmarkets.length(); i++) {
+                JSONObject entry = wantedSubmarkets.getJSONObject(i);
+                submarkets.put(entry.getString("id"), entry.optString("faction", null));
+            }
+            for (SubmarketAPI submarket : mirror.getSubmarketsCopy()) {
+                if (!submarkets.containsKey(submarket.getSpecId())) mirror.removeSubmarket(submarket.getSpecId());
+            }
+            for (Map.Entry<String, String> submarket : submarkets.entrySet()) {
+                try {
+                    if (!mirror.hasSubmarket(submarket.getKey())) mirror.addSubmarket(submarket.getKey());
+                    FactionAPI owner = submarket.getValue() == null ? null : Global.getSector().getFaction(submarket.getValue());
+                    if (owner != null) mirror.getSubmarket(submarket.getKey()).setFaction(owner);
+                } catch (Exception e) {
+                    MultiplayerLog.log().warn("Couldn't add submarket " + submarket.getKey() + " to the mirror of " + mirror.getName() + ": " + e.getMessage());
+                }
+            }
+        }
+
         //a mirror isn't running (no admin, no spaceport bonus, no stability from the owner's choices): what it
         //would compute is meaningless, so it shows the owner's own numbers
         if (colony.has("accessibility")) {
@@ -197,6 +233,24 @@ public class ColonyMirrors {
             float own = mirror.getStability().getModifiedValue();
             mirror.getStability().modifyFlat(AS_OWNER, (float) colony.getDouble("stability") - own, "As in the owner's game");
         }
+        if (colony.has("tariff")) {
+            mirror.getTariff().unmodifyFlat(AS_OWNER);
+            float own = mirror.getTariff().getModifiedValue();
+            mirror.getTariff().modifyFlat(AS_OWNER, (float) colony.getDouble("tariff") - own, "As in the owner's game");
+        }
+    }
+
+    /** The mirror of a player's colony market in this game, or null. */
+    public static MarketAPI find(String marketId) {
+        for (MarketAPI mirror : allMirrors()) {
+            if (mirror.getId().equals(marketId)) return mirror;
+        }
+        return null;
+    }
+
+    /** Whose colony a mirror is (their permanent player id). */
+    public static String ownerOf(MarketAPI mirror) {
+        return mirror.getMemoryWithoutUpdate().getString(OWNER);
     }
 
     /** Puts the planet's own market, faction and name back. */

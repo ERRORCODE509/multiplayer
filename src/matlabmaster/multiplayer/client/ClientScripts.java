@@ -281,6 +281,14 @@ public class ClientScripts implements EveryFrameScript {
                         hasMirrors = true;
                     }
                     break;
+                case "colonyStockRequest":
+                    //someone opened one of our colonies' market: its stock is ours to give
+                    markets.colonyStockRequest(client, message.getString("marketId"));
+                    break;
+                case "colonyTrade":
+                    //someone traded at one of our colonies
+                    markets.colonyTrade(message.getJSONObject("trade"));
+                    break;
                 case "marketSnapshot":
                     markets.snapshot(message.getJSONObject("snapshot"));
                     break;
@@ -361,8 +369,11 @@ public class ClientScripts implements EveryFrameScript {
             packet.put("colonies", ColonyMirrors.describeOwnColonies());
             String text = packet.toString();
             if (text.equals(coloniesSent)) return;
+            boolean joined = coloniesSent == null;
             client.send(text);
             coloniesSent = text;
+            //just joined: their stock too, for visitors while we're away (after the colonies: the server mirrors those first)
+            if (joined) markets.sendAllColonyStock(client);
         } catch (Exception e) {
             MultiplayerLog.log().error("Couldn't send our colonies to the server", e);
         }
