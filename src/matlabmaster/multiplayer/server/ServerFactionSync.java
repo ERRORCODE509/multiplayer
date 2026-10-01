@@ -45,6 +45,7 @@ public class ServerFactionSync {
             PlayerFactions.setShown(faction, !server.isLocalClient(clientId));
             server.registry.setLook(faction, look);
             if (message.has("reputation")) PlayerFactions.applyReputation(faction, message.getJSONObject("reputation"));
+            if (message.has("blueprints")) PlayerFactions.applyBlueprints(faction, message.getJSONObject("blueprints"));
             server.broadcastExcept(clientId, lookPacket(faction, look, true).toString());
         } catch (JSONException e) {
             MultiplayerLog.log().error("Couldn't apply " + clientId + "'s faction", e);
@@ -60,7 +61,7 @@ public class ServerFactionSync {
         String faction = server.clientFactions.get(clientId);
         if (player == null || !PlayerFactions.isSlot(faction)) return; //no faction of their own: their colonies can't be anyone's
         server.registry.setColonies(player, colonies);
-        if (!server.isLocalClient(clientId)) ColonyMirrors.apply(player, faction, colonies);
+        if (!server.isLocalClient(clientId)) ColonyMirrors.apply(player, faction, colonies, true); //the world: in its economy
         try {
             server.broadcastExcept(clientId, coloniesPacket(player, faction, colonies).toString());
         } catch (JSONException e) {
@@ -140,7 +141,7 @@ public class ServerFactionSync {
         }
         for (String player : server.registry.playersWithColonies()) {
             String faction = server.registry.faction(player);
-            if (faction != null) ColonyMirrors.apply(player, faction, server.registry.colonies(player));
+            if (faction != null) ColonyMirrors.apply(player, faction, server.registry.colonies(player), true);
         }
     }
 

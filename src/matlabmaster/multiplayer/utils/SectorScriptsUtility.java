@@ -2,6 +2,7 @@ package matlabmaster.multiplayer.utils;
 
 import com.fs.starfarer.api.EveryFrameScript;
 import com.fs.starfarer.api.Global;
+import com.fs.starfarer.api.impl.campaign.intel.events.BaseEventIntel;
 import matlabmaster.multiplayer.client.ClientScripts;
 import matlabmaster.multiplayer.server.ServerScripts;
 
@@ -21,6 +22,7 @@ public class SectorScriptsUtility {
         for (EveryFrameScript script : new ArrayList<>(Global.getSector().getScripts())) {
             if (script instanceof ClientScripts || script instanceof ServerScripts) continue; //never remove our own scripts
             if (isGameMechanic(script)) continue;
+            if (isPlayerEvent(script)) continue;
             if (!savedScripts.contains(script)) {
                 savedScripts.add(script); //also catches scripts added since the last call
             }
@@ -35,6 +37,16 @@ public class SectorScriptsUtility {
      */
     private static boolean isGameMechanic(EveryFrameScript script) {
         return script.getClass().getName().startsWith("com.fs.starfarer.campaign.");
+    }
+
+    /**
+     * The player's own events (vanilla's event progress bars: colony crises, hyperspace topography, ...): they're
+     * about this game's player and their colonies, which this game is the authority on, so they run while connected
+     * too, and a colony's crises happen while its owner plays (never to its mirror in the world, which isn't the
+     * "player" faction's). Their raids' fleets move through RouteManager, which stays off here, so those wait.
+     */
+    private static boolean isPlayerEvent(EveryFrameScript script) {
+        return script instanceof BaseEventIntel;
     }
 
     public void restoreScripts(){

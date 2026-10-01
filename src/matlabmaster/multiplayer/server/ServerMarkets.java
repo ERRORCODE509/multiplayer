@@ -20,7 +20,8 @@ import java.util.Set;
  * An NPC market is this game's: restocked here as vanilla does on opening, and traded at here. So is the host's own
  * colony ("host current game"). Another player's colony trades like a normal colony, at its mirror here: its owner's
  * game holds the real stock, so while they're online it's asked for it (restocked there) and given the trades;
- * while they're offline, visitors get the stock it last sent, and the trades wait for the owner's next session.
+ * while they're offline, the colony keeps working in the world's economy (restocked here as any market), and the
+ * trades wait for the owner's next session.
  */
 public class ServerMarkets {
     /** How long a visitor waits for an online owner's stock before getting the last one it sent (seconds). */
@@ -39,18 +40,20 @@ public class ServerMarkets {
     /** A player opened a market: its stock. */
     void request(String clientId, String marketId) {
         try {
-            MarketAPI market = Global.getSector().getEconomy().getMarket(marketId);
-            if (market != null) {
+            MarketAPI mirror = ColonyMirrors.find(marketId); //first: a mirror is in this game's economy too
+            if (mirror == null) {
+                MarketAPI market = Global.getSector().getEconomy().getMarket(marketId);
+                if (market == null) return;
                 boolean hostColony = market.isPlayerOwned(); //this game's own: the host's colony
                 if (hostColony ? !MarketSync.hasTradable(market) : !MarketSync.hasShared(market)) return;
                 send(clientId, MarketSync.snapshot(market, true, hostColony));
                 return;
             }
-            MarketAPI mirror = ColonyMirrors.find(marketId);
-            if (mirror == null || !MarketSync.hasShared(mirror)) return;
+            if (!MarketSync.hasShared(mirror)) return;
             String owner = server.clientOf(ColonyMirrors.ownerOf(mirror));
-            if (owner == null) { //offline: the stock their game last sent
-                send(clientId, MarketSync.snapshot(mirror, false));
+            if (owner == null) {
+                //offline: the colony keeps working in the world's economy, restocked as any market is
+                send(clientId, MarketSync.snapshot(mirror, mirror.isInEconomy()));
                 return;
             }
             waiting.computeIfAbsent(marketId, id -> new HashSet<>()).add(clientId);
@@ -82,14 +85,14 @@ public class ServerMarkets {
     void trade(String clientId, JSONObject trade) {
         try {
             String marketId = trade.getString("marketId");
-            MarketAPI market = Global.getSector().getEconomy().getMarket(marketId);
-            if (market != null) {
+            MarketAPI mirror = ColonyMirrors.find(marketId); //first: a mirror is in this game's economy too
+            if (mirror == null) {
+                MarketAPI market = Global.getSector().getEconomy().getMarket(marketId);
+                if (market == null) return;
                 MarketSync.applyTrade(market, trade, market.isPlayerOwned());
                 MultiplayerLog.log().info(clientId + " traded at " + market.getName());
                 return;
             }
-            MarketAPI mirror = ColonyMirrors.find(marketId);
-            if (mirror == null) return;
             MarketSync.applyTrade(mirror, trade);
             String ownerId = ColonyMirrors.ownerOf(mirror);
             String owner = server.clientOf(ownerId);

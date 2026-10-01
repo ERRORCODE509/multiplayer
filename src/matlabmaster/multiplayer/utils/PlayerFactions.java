@@ -2,14 +2,18 @@ package matlabmaster.multiplayer.utils;
 
 import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.FactionAPI;
+import com.fs.starfarer.api.campaign.FactionDoctrineAPI;
 import com.fs.starfarer.api.impl.campaign.ids.Factions;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * Every player's faction, as the other games see it. Each game's own "player" faction is its own player, so another
@@ -62,6 +66,72 @@ public class PlayerFactions {
         slot.setPersonNamePrefixAOrAnOverride(custom ? info.optString("aOrAn", null) : null);
         slot.setFactionLogoOverride(custom ? info.optString("logo", null) : null);
         slot.setFactionCrestOverride(custom ? info.optString("crest", null) : null);
+    }
+
+    /**
+     * This game's player's blueprints (known ships, weapons, fighters, hull mods) and fleet doctrine: their player
+     * faction gets them on the server, so their colonies' patrols, stations and trade fleets are built as theirs.
+     */
+    public static JSONObject ownBlueprints() throws JSONException {
+        FactionAPI own = Global.getSector().getPlayerFaction();
+        JSONObject blueprints = new JSONObject();
+        blueprints.put("ships", sorted(own.getKnownShips()));
+        blueprints.put("weapons", sorted(own.getKnownWeapons()));
+        blueprints.put("fighters", sorted(own.getKnownFighters()));
+        blueprints.put("hullmods", sorted(own.getKnownHullMods()));
+        FactionDoctrineAPI d = own.getDoctrine();
+        JSONObject doctrine = new JSONObject();
+        doctrine.put("warships", d.getWarships());
+        doctrine.put("carriers", d.getCarriers());
+        doctrine.put("phaseShips", d.getPhaseShips());
+        doctrine.put("officerQuality", d.getOfficerQuality());
+        doctrine.put("shipQuality", d.getShipQuality());
+        doctrine.put("numShips", d.getNumShips());
+        doctrine.put("shipSize", d.getShipSize());
+        doctrine.put("aggression", d.getAggression());
+        doctrine.put("fleets", d.getFleets());
+        blueprints.put("doctrine", doctrine);
+        return blueprints;
+    }
+
+    /** Gives a player faction a player's ownBlueprints(): it knows exactly what they know, with their doctrine. */
+    public static void applyBlueprints(String slotId, JSONObject blueprints) throws JSONException {
+        FactionAPI slot = Global.getSector().getFaction(slotId);
+        if (slot == null) return;
+        Set<String> ships = set(blueprints.getJSONArray("ships"));
+        for (String id : new ArrayList<>(slot.getKnownShips())) if (!ships.contains(id)) slot.removeKnownShip(id);
+        for (String id : ships) if (!slot.getKnownShips().contains(id)) slot.addKnownShip(id, false);
+        Set<String> weapons = set(blueprints.getJSONArray("weapons"));
+        for (String id : new ArrayList<>(slot.getKnownWeapons())) if (!weapons.contains(id)) slot.removeKnownWeapon(id);
+        for (String id : weapons) if (!slot.getKnownWeapons().contains(id)) slot.addKnownWeapon(id, false);
+        Set<String> fighters = set(blueprints.getJSONArray("fighters"));
+        for (String id : new ArrayList<>(slot.getKnownFighters())) if (!fighters.contains(id)) slot.removeKnownFighter(id);
+        for (String id : fighters) if (!slot.getKnownFighters().contains(id)) slot.addKnownFighter(id, false);
+        Set<String> hullmods = set(blueprints.getJSONArray("hullmods"));
+        for (String id : new ArrayList<>(slot.getKnownHullMods())) if (!hullmods.contains(id)) slot.removeKnownHullMod(id);
+        for (String id : hullmods) if (!slot.getKnownHullMods().contains(id)) slot.addKnownHullMod(id);
+        JSONObject doctrine = blueprints.getJSONObject("doctrine");
+        FactionDoctrineAPI d = slot.getDoctrine();
+        d.setWarships(doctrine.getInt("warships"));
+        d.setCarriers(doctrine.getInt("carriers"));
+        d.setPhaseShips(doctrine.getInt("phaseShips"));
+        d.setOfficerQuality(doctrine.getInt("officerQuality"));
+        d.setShipQuality(doctrine.getInt("shipQuality"));
+        d.setNumShips(doctrine.getInt("numShips"));
+        d.setShipSize(doctrine.getInt("shipSize"));
+        d.setAggression(doctrine.getInt("aggression"));
+        d.setFleets(doctrine.getInt("fleets"));
+        slot.clearShipRoleCache(); //fleets are built from the ships it knows now
+    }
+
+    private static JSONArray sorted(Set<String> ids) {
+        return new JSONArray(new TreeSet<>(ids)); //sorted: the same blueprints are the same text, so not resent
+    }
+
+    private static Set<String> set(JSONArray ids) throws JSONException {
+        Set<String> set = new HashSet<>();
+        for (int i = 0; i < ids.length(); i++) set.add(ids.getString(i));
+        return set;
     }
 
     /**

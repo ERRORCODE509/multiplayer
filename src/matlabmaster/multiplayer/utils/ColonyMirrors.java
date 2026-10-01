@@ -28,9 +28,10 @@ import java.util.Set;
  * planet: a market with its name, size, conditions and industries, owned by the owner's player faction, so it's on
  * the map and NPC fleets and other players see whose it is.
  *
- * A mirror is kept out of the economy: vanilla treats it like a market that isn't running (no production, trade,
- * patrols, station or raids, which would need the owner's game), so this game never simulates someone else's
- * colony. It remembers the planet's own (condition-only) market and faction and puts them back when it's removed.
+ * In the server's game (the world) a mirror is part of the economy, so the colony keeps working while its owner is
+ * offline (see apply(..., inEconomy)); in the other games it's kept out of it, which vanilla treats like a market
+ * that isn't running: those games only show it. It remembers the planet's own (condition-only) market and faction
+ * and puts them back when it's removed.
  *
  * Colony description: {"id", "name", "entity": planet id, "size", "conditions": [id], "industries": [{"id", "building"}]}.
  */
@@ -92,6 +93,17 @@ public class ColonyMirrors {
      * colony, or this game's player's) isn't mirrored.
      */
     public static void apply(String owner, String faction, JSONArray colonies) {
+        apply(owner, faction, colonies, false);
+    }
+
+    /**
+     * The same; inEconomy for the server's game (the world), where a mirror is part of the economy: it produces,
+     * trades, restocks, and its industries' patrols, station and trade fleets spawn (built from the owner's
+     * blueprints, see PlayerFactions), so the colony keeps working while its owner is offline. Colony crises only
+     * ever target the "player" faction's markets, so they never happen to it there: only in the owner's game.
+     * The other games only show it.
+     */
+    public static void apply(String owner, String faction, JSONArray colonies, boolean inEconomy) {
         Map<String, MarketAPI> mirrors = mirrorsOf(owner);
         Set<String> described = new HashSet<>();
         for (int i = 0; i < colonies.length(); i++) {
@@ -101,7 +113,7 @@ public class ColonyMirrors {
                 described.add(id);
                 MarketAPI mirror = mirrors.get(id);
                 if (mirror == null) mirror = create(owner, faction, colony);
-                if (mirror != null) update(mirror, faction, colony);
+                if (mirror != null) update(mirror, faction, colony, inEconomy);
             } catch (Exception e) {
                 MultiplayerLog.log().error("Couldn't mirror a colony of " + owner, e);
             }
@@ -150,7 +162,7 @@ public class ColonyMirrors {
         return mirror;
     }
 
-    private static void update(MarketAPI mirror, String faction, JSONObject colony) throws JSONException {
+    private static void update(MarketAPI mirror, String faction, JSONObject colony, boolean inEconomy) throws JSONException {
         mirror.setName(colony.getString("name"));
         if (colony.has("planetName")) {
             //a mirror made before names were mirrored: its planet still has its own name
@@ -231,17 +243,29 @@ public class ColonyMirrors {
         if (colony.has("stability")) {
             mirror.getStability().unmodifyFlat(AS_OWNER);
             float own = mirror.getStability().getModifiedValue();
-            mirror.getStability().modifyFlat(AS_OWNER, (float) colony.getDouble("stability") - own, "As in the owner's game");
+            float stability = (float) colony.getDouble("stability");
+            //in the economy, vanilla decivilizes a market that stays at 0 stability: never the world's copy of
+            //someone's colony (whether theirs does is their game's business)
+            if (inEconomy) stability = Math.max(1f, stability);
+            mirror.getStability().modifyFlat(AS_OWNER, stability - own, "As in the owner's game");
         }
         if (colony.has("tariff")) {
             mirror.getTariff().unmodifyFlat(AS_OWNER);
             float own = mirror.getTariff().getModifiedValue();
             mirror.getTariff().modifyFlat(AS_OWNER, (float) colony.getDouble("tariff") - own, "As in the owner's game");
         }
+
+        //last, once it's all set up, like a new market: the world's economy (mirrors made before join it here)
+        if (inEconomy && !mirror.isInEconomy()) {
+            Global.getSector().getEconomy().addMarket(mirror, false);
+            MultiplayerLog.log().info(mirror.getName() + " is part of the world's economy");
+        }
     }
 
     /** The mirror of a player's colony market in this game, or null. */
     public static MarketAPI find(String marketId) {
+        MarketAPI market = Global.getSector().getEconomy().getMarket(marketId);
+        if (isMirror(market)) return market; //in the economy (the server's game)
         for (MarketAPI mirror : allMirrors()) {
             if (mirror.getId().equals(marketId)) return mirror;
         }
@@ -253,8 +277,9 @@ public class ColonyMirrors {
         return mirror.getMemoryWithoutUpdate().getString(OWNER);
     }
 
-    /** Puts the planet's own market, faction and name back. */
+    /** Takes it out of the economy (if it's in) and puts the planet's own market, faction and name back. */
     private static void remove(MarketAPI mirror) {
+        if (mirror.isInEconomy()) Global.getSector().getEconomy().removeMarket(mirror);
         SectorEntityToken planet = mirror.getPrimaryEntity();
         MemoryAPI memory = mirror.getMemoryWithoutUpdate();
         if (planet != null && planet.getMarket() == mirror) {
@@ -274,7 +299,7 @@ public class ColonyMirrors {
         return mirrors;
     }
 
-    /** Every mirror in this game: markets on planets, not in the economy, so found through the planets. */
+    /** Every mirror in this game, found through the planets (only the server's are in the economy). */
     private static List<MarketAPI> allMirrors() {
         List<MarketAPI> mirrors = new ArrayList<>();
         for (LocationAPI location : Global.getSector().getAllLocations()) {

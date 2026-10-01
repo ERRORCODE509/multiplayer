@@ -349,6 +349,7 @@ public class ClientScripts implements EveryFrameScript {
             packet.put("commandId", "playerFaction");
             packet.putOpt("look", PlayerFactions.describeOwnFaction());
             packet.put("reputation", PlayerFactions.ownReputation());
+            packet.put("blueprints", PlayerFactions.ownBlueprints()); //our colonies' fleets in the world are built from them
             String text = packet.toString();
             if (text.equals(factionSent)) return;
             client.send(text);
