@@ -67,11 +67,14 @@ public class FleetSerializer {
                 }else{
                     area = Global.getSector().getStarSystem((String) value);
                 }
-                SectorEntityToken landingZone = area.createToken(fleet.getLocation().x,fleet.getLocation().y);
-                JumpPointAPI.JumpDestination destination = new JumpPointAPI.JumpDestination(landingZone, "multiplayerJump");
-                Global.getSector().doHyperspaceTransition(fleet,fleet, destination);
-                area.removeEntity(landingZone);
-
+                if (area == null || fleet.getContainingLocation() == area) break;
+                //moved straight there: a hyperspace transition (whose landing token was removed as soon as it had
+                //started) could leave the fleet stuck between locations, nowhere to be seen, and a player whose
+                //copy was stuck there was sent no NPC fleets at all. Its position comes with the same update
+                LocationAPI from = fleet.getContainingLocation();
+                fleet.setOrbit(null);
+                if (from != null) from.removeEntity(fleet);
+                area.addEntity(fleet);
                 break;
             case "isTransponderOn":
                 fleet.setTransponderOn((Boolean) value);
