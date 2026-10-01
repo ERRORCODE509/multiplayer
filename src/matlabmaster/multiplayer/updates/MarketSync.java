@@ -218,6 +218,57 @@ public class MarketSync {
         }
     }
 
+    /**
+     * What a trade() is worth at base prices, bought and sold alike (tariffs are paid both ways): what a colony's
+     * owner earns tariffs on. Before it's applied (the ships bought are still there to price).
+     */
+    public static float tradeValue(MarketAPI market, JSONObject trade) throws JSONException {
+        float value = 0f;
+        JSONObject submarkets = trade.getJSONObject("submarkets");
+        for (Iterator<?> it = submarkets.keys(); it.hasNext(); ) {
+            String specId = (String) it.next();
+            JSONObject change = submarkets.getJSONObject(specId);
+            JSONObject items = change.getJSONObject("cargo");
+            for (Iterator<?> keys = items.keys(); keys.hasNext(); ) {
+                String key = (String) keys.next();
+                value += Math.abs((float) items.getDouble(key)) * basePrice(key);
+            }
+            JSONObject added = change.getJSONObject("shipsAdded");
+            for (Iterator<?> ids = added.keys(); ids.hasNext(); ) {
+                try {
+                    value += Global.getSettings().getHullSpec(added.getJSONObject((String) ids.next()).getString("hull")).getBaseValue();
+                } catch (Exception ignored) { } //a hull this game doesn't know: not priced
+            }
+            SubmarketAPI submarket = market.getSubmarket(specId);
+            JSONArray removed = change.getJSONArray("shipsRemoved");
+            if (submarket == null || submarket.getCargo().getMothballedShips() == null) continue;
+            for (FleetMemberAPI member : submarket.getCargo().getMothballedShips().getMembersListCopy()) {
+                for (int i = 0; i < removed.length(); i++) {
+                    if (member.getId().equals(removed.getString(i))) value += member.getBaseValue();
+                }
+            }
+        }
+        return value;
+    }
+
+    private static float basePrice(String key) {
+        try {
+            String id = key.substring(2);
+            switch (key.charAt(0)) {
+                case 'R': return Global.getSettings().getCommoditySpec(id).getBasePrice();
+                case 'W': return Global.getSettings().getWeaponSpec(id).getBaseValue();
+                case 'F': return Global.getSettings().getFighterWingSpec(id).getBaseValue();
+                case 'S': {
+                    int bar = id.indexOf('|');
+                    return Global.getSettings().getSpecialItemSpec(bar < 0 ? id : id.substring(0, bar)).getBasePrice();
+                }
+                default: return 0f;
+            }
+        } catch (Exception e) {
+            return 0f; //something this game doesn't know: not priced
+        }
+    }
+
     private static JSONObject describe(CargoAPI cargo) throws JSONException {
         JSONObject items = new JSONObject();
         for (CargoStackAPI stack : cargo.getStacksCopy()) {

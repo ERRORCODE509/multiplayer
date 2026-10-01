@@ -3,6 +3,8 @@ package matlabmaster.multiplayer.client;
 import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.SectorEntityToken;
 import com.fs.starfarer.api.campaign.econ.MarketAPI;
+import com.fs.starfarer.api.campaign.econ.MonthlyReport;
+import com.fs.starfarer.api.impl.campaign.shared.SharedData;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.updates.MarketSync;
 import org.json.JSONObject;
@@ -36,8 +38,18 @@ public class ClientMarkets {
         try {
             MarketAPI market = Global.getSector().getEconomy().getMarket(trade.getString("marketId"));
             if (market == null || !market.isPlayerOwned()) return; //not ours any more
+            float value = MarketSync.tradeValue(market, trade);
             MarketSync.applyTrade(market, trade, true);
-            MultiplayerLog.log().info("A visitor traded at " + market.getName());
+            //the colony's tariff on it is ours: income in this month's report, paid at month's end like the rest
+            float tariff = Math.round(value * market.getTariff().getModifiedValue());
+            if (tariff > 0) {
+                MonthlyReport report = SharedData.getData().getCurrentReport();
+                MonthlyReport.FDNode node = report.getNode(report.getMarketNode(market), "mp_visitor_tariffs");
+                node.name = "Tariffs from other players";
+                node.custom = market;
+                node.income += tariff;
+            }
+            MultiplayerLog.log().info("A visitor traded at " + market.getName() + ": " + (int) tariff + " credits in tariffs, paid at month's end");
         } catch (Exception e) {
             MultiplayerLog.log().error("Couldn't apply a visitor's trade at our colony", e);
         }
