@@ -26,6 +26,10 @@ public class ClientScripts implements EveryFrameScript {
     /** Orbits drift apart frame by frame on each machine (they don't follow the clock): re-synced this often. */
     private static final float ORBIT_RESYNC_SECONDS = 10f;
     private float orbitTimer = 0f;
+    private final ClientMarkets markets = new ClientMarkets();
+    /** Our reputation and faction as last sent to the server (null: not since joining), see sendOwnFaction. */
+    private String factionSent = null;
+    private float factionTimer = 0f;
 
     // Message waitlist coming from client thread
     private static final ConcurrentLinkedQueue<JSONObject> messageQueue = new ConcurrentLinkedQueue<>();
@@ -68,17 +72,24 @@ public class ClientScripts implements EveryFrameScript {
         if (client == null || !client.isConnected()) {
             //put back any sector scripts taken out while we were not the authority, so they are not lost
             sectorScriptsUtility.restoreScripts();
+            factionSent = null;
             return;
         }
         //finish joining here, on the game thread, before any received message is processed
         if (client.isJoinPending()) {
             client.completeJoin();
             if (!client.isConnected()) return;
+            factionSent = null; //a new server knows nothing of us yet
+        }
+        factionTimer += amount;
+        if (factionSent == null || factionTimer >= PlayerFactions.RELATIONS_INTERVAL) {
+            factionTimer = 0f;
+            sendOwnFaction();
         }
 
         //handle the game pausing , disable classic in game pause
         //if the game is in a dialog inform the server
-        PauseUtility.clientPauseUtility(client,fleetSync);
+        PauseUtility.clientPauseUtility(client, fleetSync, markets);
         // --- 1. process received message every frame ---
         // they are processed every frame to limit lag
         while (!messageQueue.isEmpty()) {
@@ -227,6 +238,17 @@ public class ClientScripts implements EveryFrameScript {
                     }
                     client.ui.setServerTime(message.getLong("timestamp"));
                     break;
+                case "factionRelations":
+                    //the world's relations, and the other players' reputations (never ours: this game decides it)
+                    if (!client.isSelfHosted) PlayerFactions.applyWorldRelations(message.getJSONObject("relations"));
+                    break;
+                case "playerFactionLook":
+                    //how another player's faction looks (their own, or unaligned)
+                    if (!client.isSelfHosted) PlayerFactions.applyLook(message.getString("faction"), message.optJSONObject("look"));
+                    break;
+                case "marketSnapshot":
+                    markets.snapshot(message.getJSONObject("snapshot"));
+                    break;
                 default:
                     MultiplayerLog.log().warn("unknown command: " + commandId);
                     break;
@@ -271,6 +293,25 @@ public class ClientScripts implements EveryFrameScript {
                 MultiplayerLog.log().warn("globalFleetsUpdate : unknown fleet " + fleetId);
                 client.send(packet.toString());
             }
+        }
+    }
+
+    /**
+     * Our reputation (this game is the only authority on it) and how our faction looks, to the server, which gives
+     * them to our faction there: NPC fleets in the world treat us as this save says. Sent when they change.
+     */
+    private void sendOwnFaction() {
+        try {
+            JSONObject packet = new JSONObject();
+            packet.put("commandId", "playerFaction");
+            packet.putOpt("look", PlayerFactions.describeOwnFaction());
+            packet.put("reputation", PlayerFactions.ownReputation());
+            String text = packet.toString();
+            if (text.equals(factionSent)) return;
+            client.send(text);
+            factionSent = text;
+        } catch (Exception e) {
+            MultiplayerLog.log().error("Couldn't send our reputation to the server", e);
         }
     }
 

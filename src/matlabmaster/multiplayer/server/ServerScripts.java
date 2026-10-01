@@ -86,6 +86,7 @@ public class ServerScripts implements EveryFrameScript {
         if (!wasRunning) started();
 
         holdInteractionTargets();
+        serverInstance.factionSync.advance(amount);
 
         boolean paused = Global.getSector().isPaused();
         if (serverInstance.isDedicated()) {

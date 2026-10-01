@@ -37,6 +37,8 @@ public class Client {
     public boolean wasPaused = false;
     public UI ui;
     public String clientId;
+    /** Our faction in the server's game and the other players' (mp_player_N), from the welcome; see PlayerFactions. */
+    public String faction;
 
     public interface ClientListener {
         void onDisconnected();
@@ -180,6 +182,7 @@ public class Client {
             if (!diffs.isEmpty()) {
                 throw new UserError("Can't join: this game doesn't match the host's.\n  - " + String.join("\n  - ", diffs));
             }
+            faction = welcome.optString("faction", null);
             return welcome.getString("id");
         } catch (JSONException e) {
             throw new UserError("The server's greeting couldn't be read: " + e.getMessage());

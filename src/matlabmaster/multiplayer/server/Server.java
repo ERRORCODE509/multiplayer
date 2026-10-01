@@ -7,6 +7,10 @@ import java.util.*;
 import java.util.concurrent.*;
 
 import com.fs.starfarer.api.Global;
+import com.fs.starfarer.api.campaign.econ.MarketAPI;
+import com.fs.starfarer.api.impl.campaign.ids.Factions;
+import matlabmaster.multiplayer.updates.MarketSync;
+import matlabmaster.multiplayer.utils.PlayerFactions;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.UserError;
 import matlabmaster.multiplayer.utils.CompatibilityUtility;
@@ -23,7 +27,7 @@ import org.json.JSONObject;
 
 public class Server {
     /** Bump whenever client and server messages change in a way an older version can't handle; checked on join. */
-    public static final int PROTOCOL_VERSION = 2; //2: the server's game is the only authority
+    public static final int PROTOCOL_VERSION = 3; //2: the server's game is the only authority. 3: player factions, markets
 
     private int port;
     private ServerSocket serverSocket;
@@ -48,6 +52,10 @@ public class Server {
      * game; here the world runs on, so ServerScripts holds these fleets still until the dialog closes.
      */
     public final Map<String, String> interactions = new ConcurrentHashMap<>();
+    /** Each connected player's faction in this game and the others (client id -> mp_player_N), see PlayerFactions. */
+    public final Map<String, String> clientFactions = new ConcurrentHashMap<>();
+    /** Sends the world's faction relations and the players' factions to the clients (game thread). */
+    public final ServerFactionSync factionSync = new ServerFactionSync(this);
     /** Connected players this game has no copy of the fleet of (game thread only), so it's only logged once. */
     private final Set<String> missingPlayerFleets = new HashSet<>();
     /** The host's game version, seed and mods, sent in every welcome so joiners can check they match. */
@@ -114,10 +122,12 @@ public class Server {
                         //match on both ends behind a router (NAT), and two machines can use the same local port
                         String clientId = newClientId();
                         ClientHandler handler = new ClientHandler(socket, clientId, this);
+                        String faction = assignFaction(clientId);
                         try {
                             JSONObject welcome = new JSONObject();
                             welcome.put("commandId","welcome");
                             welcome.put("id",clientId);
+                            welcome.put("faction", faction);
                             welcome.put("protocol",PROTOCOL_VERSION);
                             welcome.put("game",hostGame);
                             handler.sendMessage(welcome.toString());
@@ -195,7 +205,8 @@ public class Server {
             // 3. Dispatcher
             switch (commandId) {
                 case "playerFleetUpdate":
-                    broadcastExcept(clientId, message);
+                    rewriteOwnFaction(clientId, json);
+                    broadcastExcept(clientId, json.toString());
                     if (dedicated) gameThreadTasks.add(() -> applyPlayerFleetUpdate(clientId, json));
                     break;
                 case "requestAllFleetsSnapshot":
@@ -207,6 +218,7 @@ public class Server {
                             //only the players' fleets: NPC fleets come with the next world update, only those this
                             //client can see. A dedicated server's own player fleet isn't a player: left out
                             reply.put("fleets", FleetHelper.getPlayerFleetsSnapshot(!dedicated));
+                            if (!dedicated && localClientId != null) rewriteOwnFaction(localClientId, reply); //the host's own fleet
                             sendTo(clientId, String.valueOf(reply));
                         } catch (Exception e) {
                             MultiplayerLog.log().error("Failed to build the fleets snapshot for " + clientId, e);
@@ -214,7 +226,8 @@ public class Server {
                     });
                     break;
                 case "fleetSnapshot":
-                    broadcastExcept(clientId, message);
+                    rewriteOwnFaction(clientId, json);
+                    broadcastExcept(clientId, json.toString());
                     if (dedicated) gameThreadTasks.add(() -> spawnPlayerFleet(json));
                     break;
                 case "requestFleetSnapshot":
@@ -228,6 +241,7 @@ public class Server {
                             reply.put("commandId", "handleFleetSnapshotRequest");
                             reply.put("to", clientId);
                             reply.put("fleet", FleetSerializer.serializeFleet((CampaignFleetAPI) fleet));
+                            if (!dedicated && localClientId != null) rewriteOwnFaction(localClientId, reply); //the host's own fleet
                             sendTo(clientId, reply.toString());
                         } catch (Exception e) {
                             MultiplayerLog.log().error("Failed to send fleet " + fleetId + " to " + clientId, e);
@@ -235,6 +249,7 @@ public class Server {
                     });
                     break;
                 case "handleFleetSnapshotRequest":
+                    rewriteOwnFaction(clientId, json); //the sender's own fleet
                     if (SERVER_ID.equals(json.optString("to"))) { //a player's fleet a dedicated server asked for
                         if (dedicated) gameThreadTasks.add(() -> spawnPlayerFleet(json));
                     } else {
@@ -272,6 +287,40 @@ public class Server {
                         }
                     });
                     break;
+                case "playerFaction":
+                    //the player's reputation (their own game decides it) and how their faction looks
+                    gameThreadTasks.add(() -> factionSync.playerFaction(clientId, json));
+                    break;
+                case "requestMarket":
+                    //a player opened a market: the world's stock, restocked as vanilla does on opening
+                    String marketId = json.getString("marketId");
+                    gameThreadTasks.add(() -> {
+                        try {
+                            MarketAPI market = Global.getSector().getEconomy().getMarket(marketId);
+                            if (market == null || !MarketSync.hasShared(market)) return;
+                            JSONObject reply = new JSONObject();
+                            reply.put("commandId", "marketSnapshot");
+                            reply.put("snapshot", MarketSync.snapshot(market, true));
+                            sendTo(clientId, reply.toString());
+                        } catch (Exception e) {
+                            MultiplayerLog.log().error("Failed to send market " + marketId + " to " + clientId, e);
+                        }
+                    });
+                    break;
+                case "marketTrade":
+                    //what a player bought and sold: into the world's stock
+                    gameThreadTasks.add(() -> {
+                        try {
+                            JSONObject trade = json.getJSONObject("trade");
+                            MarketAPI market = Global.getSector().getEconomy().getMarket(trade.getString("marketId"));
+                            if (market == null) return;
+                            MarketSync.applyTrade(market, trade);
+                            MultiplayerLog.log().info(clientId + " traded at " + market.getName());
+                        } catch (Exception e) {
+                            MultiplayerLog.log().error("Failed to apply a trade from " + clientId, e);
+                        }
+                    });
+                    break;
                 default:
                     MultiplayerLog.log().warn("Unknown command: " + commandId);
                     break;
@@ -280,6 +329,31 @@ public class Server {
         } catch (Exception e) {
             MultiplayerLog.log().error("JSON Error from " + clientId + " : " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Gives a joining player the first free player faction. With all SLOT_COUNT taken they're independent: they can
+     * still play, but they share the independents' reputation, and theirs isn't applied.
+     */
+    private synchronized String assignFaction(String clientId) {
+        for (int i = 1; i <= PlayerFactions.SLOT_COUNT; i++) {
+            String slot = PlayerFactions.slotId(i);
+            if (!clientFactions.containsValue(slot)) {
+                clientFactions.put(clientId, slot);
+                factionSync.joined(clientId);
+                return slot;
+            }
+        }
+        MultiplayerLog.log().warn("All " + PlayerFactions.SLOT_COUNT + " player factions are taken: " + clientId + " plays as independent");
+        clientFactions.put(clientId, Factions.INDEPENDENT);
+        factionSync.joined(clientId);
+        return Factions.INDEPENDENT;
+    }
+
+    /** A player's fleet data (their fleet, its officers, or a diff) with their "player" faction made their player faction. */
+    private void rewriteOwnFaction(String clientId, JSONObject json) throws JSONException {
+        String faction = clientFactions.get(clientId);
+        if (faction != null) PlayerFactions.rewriteOwnFaction(json, faction);
     }
 
     /** A random id no connected client has. Random rather than counted, so it can't match a fleet id left in someone's save by an earlier session. */
@@ -419,6 +493,8 @@ public class Server {
         public void closeConnection() {
             clients.remove(clientId);
             interactions.remove(clientId); //a player who left isn't talking to anyone
+            String faction = clientFactions.remove(clientId);
+            if (faction != null) gameThreadTasks.add(() -> factionSync.freed(faction)); //for the next player
             if (clientId.equals(localClientId)) localClientId = null;
             if (dedicated) { //remove this game's copy of their fleet
                 pendingPlayerSnapshots.remove(clientId);

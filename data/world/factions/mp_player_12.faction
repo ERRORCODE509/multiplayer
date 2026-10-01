@@ -1,0 +1,25 @@
+{
+	# A connected player's faction in the other games (multiplayer mod): it carries that player's reputation.
+	# The mod renames it to the player's own faction when they've set one up; otherwise it shows as "Unaligned".
+	id:"mp_player_12",
+	"color":[170,170,170,255],
+	"baseUIColor":[170,170,170,255],
+	"displayName":"Unaligned",
+	"displayNameWithArticle":"an unaligned captain",
+	"logo":"graphics/factions/neutral.png",
+	"crest":"graphics/factions/crest_neutral.png",
+	"showInIntelTab":false,
+	"names":{
+	},
+	"portraits":{
+	},
+	"music":{
+		"theme":"music_none",
+		"market_neutral":"music_none",
+		"market_hostile":"music_none",
+		"market_friendly":"music_none",
+		"encounter_neutral":"music_none",
+		"encounter_hostile":"music_none",
+		"encounter_friendly":"music_none",
+	},
+},
