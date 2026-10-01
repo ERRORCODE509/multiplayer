@@ -22,7 +22,7 @@ import java.util.List;
 public class PlayerFactions {
     public static final String SLOT_PREFIX = "mp_player_";
     /** How many mp_player_N factions the mod defines: the most players connected at once with their own faction. */
-    public static final int SLOT_COUNT = 16;
+    public static final int SLOT_COUNT = 32;
     /** Every faction's relations change, at most this often (seconds). */
     public static final float RELATIONS_INTERVAL = 1f;
     public static final String UNALIGNED = "Unaligned";

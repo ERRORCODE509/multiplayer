@@ -35,6 +35,9 @@ public class ColonyMirrors {
     private static final String OWNER = "$mp_colonyOwner";
     private static final String ORIGINAL_MARKET = "$mp_originalMarket";
     private static final String ORIGINAL_FACTION = "$mp_originalFaction";
+    private static final String ORIGINAL_NAME = "$mp_originalName";
+    /** The modifier that makes a mirror's accessibility and stability its owner's. */
+    private static final String AS_OWNER = "mp_as_owner";
 
     /** This game's player's colonies (owner's side). */
     public static JSONArray describeOwnColonies() throws JSONException {
@@ -45,7 +48,10 @@ public class ColonyMirrors {
             colony.put("id", market.getId());
             colony.put("name", market.getName());
             colony.put("entity", market.getPrimaryEntity().getId());
+            colony.put("planetName", market.getPrimaryEntity().getName()); //naming a colony renames its planet
             colony.put("size", market.getSize());
+            colony.put("accessibility", Math.round(market.getAccessibilityMod().computeEffective(0f) * 100f) / 100d);
+            colony.put("stability", Math.round(market.getStabilityValue()));
             JSONArray conditions = new JSONArray();
             for (MarketConditionAPI condition : market.getConditions()) conditions.put(condition.getId());
             colony.put("conditions", conditions);
@@ -123,6 +129,7 @@ public class ColonyMirrors {
         memory.set(OWNER, owner);
         if (current != null) memory.set(ORIGINAL_MARKET, current);
         memory.set(ORIGINAL_FACTION, planet.getFaction() == null ? "neutral" : planet.getFaction().getId());
+        memory.set(ORIGINAL_NAME, planet.getName());
         planet.setMarket(mirror);
         planet.setFaction(faction);
         MultiplayerLog.log().info("Mirrored " + colony.getString("name") + " (" + owner + ") on " + planet.getName());
@@ -131,6 +138,11 @@ public class ColonyMirrors {
 
     private static void update(MarketAPI mirror, String faction, JSONObject colony) throws JSONException {
         mirror.setName(colony.getString("name"));
+        if (colony.has("planetName")) {
+            //a mirror made before names were mirrored: its planet still has its own name
+            if (!mirror.getMemoryWithoutUpdate().contains(ORIGINAL_NAME)) mirror.getMemoryWithoutUpdate().set(ORIGINAL_NAME, mirror.getPrimaryEntity().getName());
+            mirror.getPrimaryEntity().setName(colony.getString("planetName"));
+        }
         mirror.setSize(colony.getInt("size"));
         if (!faction.equals(mirror.getFactionId())) {
             mirror.setFactionId(faction);
@@ -172,9 +184,22 @@ public class ColonyMirrors {
                 MultiplayerLog.log().warn("Couldn't add industry " + industry.getKey() + " to the mirror of " + mirror.getName() + ": " + e.getMessage());
             }
         }
+
+        //a mirror isn't running (no admin, no spaceport bonus, no stability from the owner's choices): what it
+        //would compute is meaningless, so it shows the owner's own numbers
+        if (colony.has("accessibility")) {
+            mirror.getAccessibilityMod().unmodifyFlat(AS_OWNER);
+            float own = mirror.getAccessibilityMod().computeEffective(0f);
+            mirror.getAccessibilityMod().modifyFlat(AS_OWNER, (float) colony.getDouble("accessibility") - own, "As in the owner's game");
+        }
+        if (colony.has("stability")) {
+            mirror.getStability().unmodifyFlat(AS_OWNER);
+            float own = mirror.getStability().getModifiedValue();
+            mirror.getStability().modifyFlat(AS_OWNER, (float) colony.getDouble("stability") - own, "As in the owner's game");
+        }
     }
 
-    /** Puts the planet's own market and faction back. */
+    /** Puts the planet's own market, faction and name back. */
     private static void remove(MarketAPI mirror) {
         SectorEntityToken planet = mirror.getPrimaryEntity();
         MemoryAPI memory = mirror.getMemoryWithoutUpdate();
@@ -182,6 +207,7 @@ public class ColonyMirrors {
             Object original = memory.get(ORIGINAL_MARKET);
             planet.setMarket(original instanceof MarketAPI ? (MarketAPI) original : null);
             planet.setFaction(memory.contains(ORIGINAL_FACTION) ? memory.getString(ORIGINAL_FACTION) : "neutral");
+            if (memory.contains(ORIGINAL_NAME)) planet.setName(memory.getString(ORIGINAL_NAME));
         }
         MultiplayerLog.log().info("Removed the mirror of " + mirror.getName());
     }
