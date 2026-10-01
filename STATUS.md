@@ -81,7 +81,8 @@ Unlicense, as its developer stated (also in `LICENSE`).
   (battle debris: relays players' fields, shares the server game's own, sends them all on joining).
 - Client: `client/Client` (connection, `completeJoin`), `client/ClientScripts` (message handling, per-second sends:
   reputation/blueprints/name, colonies, debris, copy AIs), `ClientMarkets`, `InteractionOrbit`,
-  `CopyAI` (NPC copies decide as vanilla's, never move by themselves). `utils/PlayerEncounters` (no-combat dialog for players' fleets), `utils/PositionSmoothing`
+  `CopyAI` (NPC copies decide as vanilla's, never move by themselves). `utils/PlayerEncounters` (no-combat dialog
+  for players' fleets), `utils/PositionSmoothing`
   (gradual position corrections). `utils/PauseUtility` sends `paused`/`unpaused` (dialog target and positions).
 - Shared: `utils/PlayerFactions` (32 player factions `mp_player_N` in `data/world/factions`), `utils/ColonyMirrors`
   (other players' colonies: in the server's economy, display-only elsewhere), `updates/MarketSync`, `BattleSync`,
