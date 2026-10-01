@@ -27,6 +27,8 @@ public class FleetSerializer {
      * This iterates through the changes and calls the appropriate game engine methods.
      */
     public static void applyFleetDiff(CampaignFleetAPI fleet, JSONObject diff) throws JSONException {
+        LocationAPI leftFrom = fleet.getContainingLocation();
+        org.lwjgl.util.vector.Vector2f leftAt = new org.lwjgl.util.vector.Vector2f(fleet.getLocation());
         Iterator<?> keys = diff.keys();
         while (keys.hasNext()) {
             String key = (String) keys.next();
@@ -40,6 +42,15 @@ public class FleetSerializer {
             else if (delta instanceof JSONObject) {
                 applyNestedPatch(fleet, key, (JSONObject) delta);
             }
+        }
+        //a flash where it left and where it arrived, in place of the jump's own (no transition here, see "location").
+        //After the whole diff: its keys come in no particular order, and the new position is in it
+        LocationAPI now = fleet.getContainingLocation();
+        if (now != leftFrom && now != null) {
+            java.awt.Color jump = new java.awt.Color(120, 190, 255, 255);
+            float size = Math.max(100f, fleet.getRadius() * 4f);
+            if (leftFrom != null) leftFrom.addHitParticle(leftAt, new org.lwjgl.util.vector.Vector2f(), size, 1f, 1f, jump);
+            now.addHitParticle(new org.lwjgl.util.vector.Vector2f(fleet.getLocation()), new org.lwjgl.util.vector.Vector2f(), size, 1f, 1f, jump);
         }
     }
 
@@ -73,15 +84,8 @@ public class FleetSerializer {
                 //copy was stuck there was sent no NPC fleets at all. Its position comes with the same update
                 LocationAPI from = fleet.getContainingLocation();
                 fleet.setOrbit(null);
-                //a flash where it leaves and where it arrives, in place of the jump's own (no transition here)
-                java.awt.Color jump = new java.awt.Color(120, 190, 255, 255);
-                float size = Math.max(100f, fleet.getRadius() * 4f);
-                if (from != null) {
-                    from.addHitParticle(new org.lwjgl.util.vector.Vector2f(fleet.getLocation()), new org.lwjgl.util.vector.Vector2f(), size, 1f, 1f, jump);
-                    from.removeEntity(fleet);
-                }
+                if (from != null) from.removeEntity(fleet);
                 area.addEntity(fleet);
-                area.addHitParticle(new org.lwjgl.util.vector.Vector2f(fleet.getLocation()), new org.lwjgl.util.vector.Vector2f(), size, 1f, 1f, jump);
                 break;
             case "isTransponderOn":
                 fleet.setTransponderOn((Boolean) value);
