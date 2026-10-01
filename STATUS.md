@@ -54,7 +54,8 @@ rm -rf "$S" && mkdir -p "$S/mod" && javac --release 17 -nowarn -encoding UTF-8 -
   (battle debris: relays players' fields, shares the server game's own, sends them all on joining).
 - Client: `client/Client` (connection, `completeJoin`), `client/ClientScripts` (message handling, per-second sends:
   reputation/blueprints/name, colonies, debris, hostile wrapping), `ClientMarkets`, `InteractionOrbit`,
-  `HostileAwareTactics`. `utils/PauseUtility` sends `paused`/`unpaused` (dialog target and positions).
+  `HostileAwareTactics`. `utils/PlayerEncounters` (no-combat dialog for players' fleets), `utils/PositionSmoothing`
+  (gradual position corrections). `utils/PauseUtility` sends `paused`/`unpaused` (dialog target and positions).
 - Shared: `utils/PlayerFactions` (32 player factions `mp_player_N` in `data/world/factions`), `utils/ColonyMirrors`
   (other players' colonies: in the server's economy, display-only elsewhere), `updates/MarketSync`, `BattleSync`,
   `DebrisSync`, `utils/FleetSerializer`/`PersonsSerializer`.
@@ -63,6 +64,11 @@ rm -rf "$S" && mkdir -p "$S/mod" && javac --release 17 -nowarn -encoding UTF-8 -
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
+- [ ] No PvP (`7c8341b`): flying into another player's fleet opens "comes alongside ..., another player's" with only
+      Leave (both fleets shown), on a client and on the host ("host current game"); fighting an NPC fleet next to
+      another player doesn't pull them in ("supporting your forces" / "joining the enemy" never names a player).
+- [ ] Smoothing (`7c8341b`): other players' and NPC fleets no longer jump when the sync corrects them; they glide
+      there in well under a second. Jumps between locations still move them at once (with the flash).
 - [ ] Closing the server (or losing the connection) while a client is in a dialog: the client's fleet name loses
       " [PAUSED]" (`a546ef8`); a save that has it loses it on loading.
 - [ ] Clock (`3ec8821`): a client's date no longer jumps an hour every few seconds (the log no longer says "Clock
@@ -103,4 +109,4 @@ hyperspace gravity wells, factions shown in the intel tab only while connected.
 - Visitors' prices at a player's colony come from their own game's copy (out of its economy): may differ.
 - Salvage loot isn't shared, and a later battle adding to an existing field doesn't update the others' copies.
 - Clock: a client stays up to 5 game minutes (the dead band) behind the server, plus the network delay.
-- Players are always neutral to each other (no PvP).
+- Players are always neutral to each other and can't fight (PlayerEncounters): PvP would need a real design.
