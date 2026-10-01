@@ -60,7 +60,8 @@ Unlicense, as its developer stated (also in `LICENSE`).
   `fleets` ({locationId?|"all", near?}), `cargo`, `markets`, `market` ({marketId}, no restock), `entities`
   ({locationId?}: orbit angles), `screen`. Actions: `pause` (connected games unpause themselves), `teleport`,
   `give`, `addship`, `setcr`, `ability`, `rep` ({factionId, value}), `mark` ({text} -> "[AGENT MARK]" in the log),
-  `memory`. Not tested in-game yet.
+  `memory`. Works in-game (status, fleets, entities, ss_diff checked). Pending rebuild (jar locked while the games
+  ran): `entities` skips asteroids (each game has its own, with their own ids).
 - Fleet ids are the same in every game of a session, so `ss_diff(what: "fleets", args: {near: 3000})` compares the
   server's and a client's view around the client's fleet (the server has every fleet, a client only nearby ones).
 
@@ -106,8 +107,8 @@ Unlicense, as its developer stated (also in `LICENSE`).
       move them at once (with the flash). Planets and stations no longer jump at the 10 s orbit resync either.
 - [ ] Closing the server (or losing the connection) while a client is in a dialog: the client's fleet name loses
       " [PAUSED]" (`a546ef8`); a save that has it loses it on loading.
-- [ ] Clock (`3ec8821`): a client's date no longer jumps an hour every few seconds (the log no longer says "Clock
-      set to the server's" every few seconds; it still does after a host fast-forward or a long dialog).
+- [x] Clock (`3ec8821`): checked through the agent bridge (ss_diff status, both read at once): the client was
+      4 game minutes off the server, inside the 5-minute dead band (it used to drift up to an hour, then jump).
 - [ ] Debris (`9dc2dfb`): a player joining after a battle gets its debris field ("The world has N battle debris
       fields" in their log); a field salvaged while a player was offline is gone for them on rejoining (not
       brought back); with "host current game", the host's battles leave debris for the clients too, and the host
