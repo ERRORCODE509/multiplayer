@@ -29,7 +29,10 @@ public class WorldSync {
         List<SectorEntityToken> allEntities = location.getAllEntities();
         JSONObject orbits = new JSONObject();
         for(SectorEntityToken entity : allEntities){
-            if(entity.getOrbit() != null && !(entity instanceof AsteroidAPI) && !Objects.equals(entity.getCustomEntityType(), "orbital_junk")){
+            //only circular orbits: the game reports a radius of 0 for any other kind (like the hyperspace gravity
+            //wells, which follow their system's planets), and a client rebuilding that as a circle put them all
+            //on top of their star
+            if(entity.getOrbit() != null && entity.getCircularOrbitRadius() > 0f && !(entity instanceof AsteroidAPI) && !Objects.equals(entity.getCustomEntityType(), "orbital_junk")){
                 if(Objects.equals(entity.getName(), "Habitat")){
                     System.out.println(entity.getCustomEntityType());
                 }
