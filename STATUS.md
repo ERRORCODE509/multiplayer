@@ -80,8 +80,8 @@ Unlicense, as its developer stated (also in `LICENSE`).
   (relations, player faction looks, colonies), `server/ServerMarkets` (market stock and trades), `server/ServerDebris`
   (battle debris: relays players' fields, shares the server game's own, sends them all on joining).
 - Client: `client/Client` (connection, `completeJoin`), `client/ClientScripts` (message handling, per-second sends:
-  reputation/blueprints/name, colonies, debris, hostile wrapping), `ClientMarkets`, `InteractionOrbit`,
-  `HostileAwareTactics`. `utils/PlayerEncounters` (no-combat dialog for players' fleets), `utils/PositionSmoothing`
+  reputation/blueprints/name, colonies, debris, copy AIs), `ClientMarkets`, `InteractionOrbit`,
+  `CopyAI` (NPC copies decide as vanilla's, never move by themselves). `utils/PlayerEncounters` (no-combat dialog for players' fleets), `utils/PositionSmoothing`
   (gradual position corrections). `utils/PauseUtility` sends `paused`/`unpaused` (dialog target and positions).
 - Shared: `utils/PlayerFactions` (32 player factions `mp_player_N` in `data/world/factions`), `utils/ColonyMirrors`
   (other players' colonies: in the server's economy, display-only elsewhere), `updates/MarketSync`, `BattleSync`,
@@ -91,20 +91,13 @@ Unlicense, as its developer stated (also in `LICENSE`).
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
-- [ ] **Bug, open:** NPC fleets of a faction the player made hostile still show as neutral in the client's game
-      (the server side works: they chase and intercept; the reputation reaches it in ~1 s). The game's
-      CampaignFleet.isHostileTo asks the copy's AI (ModularFleetAI -> tactical module, which HostileAwareTactics
-      wraps), and vanilla's TacticalModule would already be hostile by faction, so something at runtime differs.
-      Next: with both games running, set it with `ss_act guest rep {factionId: hegemony, value: -0.75}` and read
-      `ss_dump guest fleets {near: 3000}`: each fleet's `vsPlayer` block (bridge, built) has hostile both ways, the
-      relation, knowsPlayer, visibility, the AI and tactics classes and the make(Non)Hostile flags.
-      What javap showed (RC8): the fleet tooltip's stance (StandardTooltipV2$9) is `fleet.getAI().isHostileTo(player)`,
-      and only at visibility COMPOSITION_AND_FACTION_DETAILS (lower: neutral/unknown). Every AI path is hostile by
-      faction at <= -0.5: legacy CampaignFleetAI (`$cfai_makeHostile` if set, else Faction.isAtBest(HOSTILE)), vanilla
-      TacticalModule (flags, then faction; not hostile if the player's transponder is off and !knowsWhoPlayerIs), and
-      our wrapper. CampaignFleet only makes a ModularFleetAI in writeReplace (saving), so a fresh copy may have the
-      legacy AI (HostileAwareTactics only wraps ModularFleetAIAPI). So suspect visibility or something overriding
-      the relation: read `vsPlayer` first. Fallback fix: `$cfai_makeHostile` on hostile copies (both AIs check it).
+- [ ] Hostile NPC fleets (`54219c2`): cause found with the bridge (copies had no AI: tooltip/map asked it, and an
+      AI-less fleet never engages or pursues). CopyAI now decides for every NPC copy as vanilla's would. Check:
+      after `ss_act guest rep {factionId: hegemony, value: -0.75}`, Hegemony fleets show red/hostile, an intercepting
+      patrol fights (or pursues when leaving), `ss_dump guest fleets {near: 3000}` shows `vsPlayer.ai: CopyAI`;
+      saving while connected still works (copies get their vanilla AI back first). Watch for re-interception
+      loops: the server lets the same fleet intercept again after 10 s (INTERCEPT_COOLDOWN), vanilla stands down
+      for half a day.
 - [x] Fleet copies (`edd4467`, `82c4d6c`): checked with the agent bridge. Around the client every fleet keys by id
       (no duplicates), rosters in the same order, positions within 60; the only fleets missing on the client are the
       server's out of its sensor range. A client's fleet and its copy on the server: 21-29 units apart at 230 units/s
@@ -147,8 +140,6 @@ Unlicense, as its developer stated (also in `LICENSE`).
       at month end; your log says how much (`50b225c`).
 - [ ] Reputation change sound plays while connected (once per change; the saved-up one plays again on
       disconnecting) (`85690fe`).
-- [ ] Hostile fleets shown as hostile in the client (map colours), and saving while connected still works
-      (`97bf239`, HostileAwareTactics wraps the copies' tactical module, unwrapped before saving).
 - [ ] NPC fleets leave a player alone during a dialog/interception (no swarm afterwards) (`255db92`).
 - [ ] Fleet kept orbiting a planet after a dialog moves smoothly on the host (not every ~10 s) (`255db92`).
 - [ ] Renaming the character (console) logs `<old> is now <new>` on the server and renames "<name>'s Fleet".
