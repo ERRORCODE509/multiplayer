@@ -89,8 +89,11 @@ public class ServerMarkets {
             if (mirror == null) {
                 MarketAPI market = Global.getSector().getEconomy().getMarket(marketId);
                 if (market == null) return;
-                MarketSync.applyTrade(market, trade, market.isPlayerOwned());
-                MultiplayerLog.log().info(server.who(clientId) + " traded at " + market.getName());
+                boolean hostColony = market.isPlayerOwned(); //this game's own: the host's colony
+                float value = hostColony ? MarketSync.tradeValue(market, trade) : 0f;
+                MarketSync.applyTrade(market, trade, hostColony);
+                float tariff = hostColony ? MarketSync.payTariff(market, value) : 0f; //the host's, as any owner's
+                MultiplayerLog.log().info(server.who(clientId) + " traded at " + market.getName() + (hostColony ? " (" + (int) tariff + " credits in tariffs to the host)" : ""));
                 return;
             }
             MarketSync.applyTrade(mirror, trade);

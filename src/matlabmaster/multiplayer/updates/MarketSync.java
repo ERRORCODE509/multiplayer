@@ -5,6 +5,8 @@ import com.fs.starfarer.api.campaign.CargoAPI;
 import com.fs.starfarer.api.campaign.CargoStackAPI;
 import com.fs.starfarer.api.campaign.SpecialItemData;
 import com.fs.starfarer.api.campaign.econ.MarketAPI;
+import com.fs.starfarer.api.campaign.econ.MonthlyReport;
+import com.fs.starfarer.api.impl.campaign.shared.SharedData;
 import com.fs.starfarer.api.campaign.econ.SubmarketAPI;
 import com.fs.starfarer.api.fleet.FleetMemberAPI;
 import com.fs.starfarer.api.impl.campaign.ids.Submarkets;
@@ -249,6 +251,21 @@ public class MarketSync {
             }
         }
         return value;
+    }
+
+    /**
+     * The colony's tariff on a trade worth this much is its owner's (this game's player): income in this month's
+     * report, as "Tariffs from other players" under the colony, paid at month's end like the rest. Returns it.
+     */
+    public static float payTariff(MarketAPI market, float value) {
+        float tariff = Math.round(value * market.getTariff().getModifiedValue());
+        if (tariff <= 0) return 0f;
+        MonthlyReport report = SharedData.getData().getCurrentReport();
+        MonthlyReport.FDNode node = report.getNode(report.getMarketNode(market), "mp_visitor_tariffs");
+        node.name = "Tariffs from other players";
+        node.custom = market;
+        node.income += tariff;
+        return tariff;
     }
 
     private static float basePrice(String key) {
