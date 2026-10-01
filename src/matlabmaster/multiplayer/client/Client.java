@@ -8,7 +8,9 @@ import matlabmaster.multiplayer.ui.UI;
 import matlabmaster.multiplayer.updates.WorldSync;
 import matlabmaster.multiplayer.utils.CompatibilityUtility;
 import matlabmaster.multiplayer.utils.FleetHelper;
+import matlabmaster.multiplayer.utils.ColonyMirrors;
 import matlabmaster.multiplayer.utils.FleetSerializer;
+import matlabmaster.multiplayer.utils.PlayerIdentity;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -37,7 +39,7 @@ public class Client {
     public boolean wasPaused = false;
     public UI ui;
     public String clientId;
-    /** Our faction in the server's game and the other players' (mp_player_N), from the welcome; see PlayerFactions. */
+    /** Our faction in the server's game and the other players' (mp_player_N), from its reply to our hello; see PlayerFactions. */
     public String faction;
 
     public interface ClientListener {
@@ -99,7 +101,22 @@ public class Client {
         Global.getSettings().setFloat("campaignSpeedupMult", 1f);
         settingsApplied = true;
 
+        try {
+            //who we are, first: the server gives us our faction from it, and our fleet is sent in that faction
+            JSONObject hello = new JSONObject();
+            hello.put("commandId", "hello");
+            hello.put("playerId", PlayerIdentity.id());
+            hello.put("name", PlayerIdentity.name());
+            send(hello.toString());
+        } catch (Exception e) {
+            MultiplayerLog.log().error("Handshake failed", e);
+            disconnect();
+            return;
+        }
+
         if(!isSelfHosted){
+            //the other players' colonies in this game are the server's to say: any from an earlier session go
+            ColonyMirrors.removeAll();
             try {
                 //send our fleet to the server so that it knows about it
                 JSONObject packet = new JSONObject();
@@ -182,7 +199,6 @@ public class Client {
             if (!diffs.isEmpty()) {
                 throw new UserError("Can't join: this game doesn't match the host's.\n  - " + String.join("\n  - ", diffs));
             }
-            faction = welcome.optString("faction", null);
             return welcome.getString("id");
         } catch (JSONException e) {
             throw new UserError("The server's greeting couldn't be read: " + e.getMessage());
@@ -227,4 +243,4 @@ public class Client {
 
     public boolean isConnected() { return isConnected; }
 
-}
+}

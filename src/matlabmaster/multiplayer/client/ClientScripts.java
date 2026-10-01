@@ -30,6 +30,12 @@ public class ClientScripts implements EveryFrameScript {
     /** Our reputation and faction as last sent to the server (null: not since joining), see sendOwnFaction. */
     private String factionSent = null;
     private float factionTimer = 0f;
+    /** Our colonies as last sent to the server (null: not since joining), see sendOwnColonies. */
+    private String coloniesSent = null;
+    private float coloniesTimer = 0f;
+    private static final float COLONIES_INTERVAL = 5f;
+    /** Whether this game has mirrors of other players' colonies, from the server: removed on leaving it. */
+    private boolean hasMirrors = false;
 
     // Message waitlist coming from client thread
     private static final ConcurrentLinkedQueue<JSONObject> messageQueue = new ConcurrentLinkedQueue<>();
@@ -74,6 +80,11 @@ public class ClientScripts implements EveryFrameScript {
             sectorScriptsUtility.restoreScripts();
             if (factionSent != null) PlayerFactions.hideAll(); //just disconnected: nobody else is here any more
             factionSent = null;
+            coloniesSent = null;
+            if (hasMirrors) {
+                ColonyMirrors.removeAll(); //the world's colonies stay in the world, not in this save
+                hasMirrors = false;
+            }
             return;
         }
         //finish joining here, on the game thread, before any received message is processed
@@ -81,11 +92,17 @@ public class ClientScripts implements EveryFrameScript {
             client.completeJoin();
             if (!client.isConnected()) return;
             factionSent = null; //a new server knows nothing of us yet
+            coloniesSent = null;
         }
         factionTimer += amount;
         if (factionSent == null || factionTimer >= PlayerFactions.RELATIONS_INTERVAL) {
             factionTimer = 0f;
             sendOwnFaction();
+        }
+        coloniesTimer += amount;
+        if (coloniesSent == null || coloniesTimer >= COLONIES_INTERVAL) {
+            coloniesTimer = 0f;
+            sendOwnColonies();
         }
 
         //handle the game pausing , disable classic in game pause
@@ -252,6 +269,18 @@ public class ClientScripts implements EveryFrameScript {
                         PlayerFactions.setShown(faction, message.optBoolean("inUse", true) && !faction.equals(client.faction));
                     }
                     break;
+                case "yourFaction":
+                    //our faction in the other games, from the server's reply to our hello
+                    client.faction = message.getString("faction");
+                    break;
+                case "playerColonies":
+                    //another player's colonies (they run in their game): mirrored here. The host's game is the world:
+                    //the server already mirrors them there
+                    if (!client.isSelfHosted && !message.getString("player").equals(PlayerIdentity.id())) {
+                        ColonyMirrors.apply(message.getString("player"), message.getString("faction"), message.getJSONArray("colonies"));
+                        hasMirrors = true;
+                    }
+                    break;
                 case "marketSnapshot":
                     markets.snapshot(message.getJSONObject("snapshot"));
                     break;
@@ -318,6 +347,24 @@ public class ClientScripts implements EveryFrameScript {
             factionSent = text;
         } catch (Exception e) {
             MultiplayerLog.log().error("Couldn't send our reputation to the server", e);
+        }
+    }
+
+    /**
+     * Our colonies (they run in this game, the only authority on them), to the server, which mirrors them in the
+     * world for the other players and keeps them there while we're offline. Sent when they change.
+     */
+    private void sendOwnColonies() {
+        try {
+            JSONObject packet = new JSONObject();
+            packet.put("commandId", "colonies");
+            packet.put("colonies", ColonyMirrors.describeOwnColonies());
+            String text = packet.toString();
+            if (text.equals(coloniesSent)) return;
+            client.send(text);
+            coloniesSent = text;
+        } catch (Exception e) {
+            MultiplayerLog.log().error("Couldn't send our colonies to the server", e);
         }
     }
 

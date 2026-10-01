@@ -27,7 +27,7 @@ import org.json.JSONObject;
 
 public class Server {
     /** Bump whenever client and server messages change in a way an older version can't handle; checked on join. */
-    public static final int PROTOCOL_VERSION = 3; //2: the server's game is the only authority. 3: player factions, markets
+    public static final int PROTOCOL_VERSION = 4; //2: the server's game is the only authority. 3: player factions, markets. 4: hello (player ids), colonies
 
     private int port;
     private ServerSocket serverSocket;
@@ -54,6 +54,10 @@ public class Server {
     public final Map<String, String> interactions = new ConcurrentHashMap<>();
     /** Each connected player's faction in this game and the others (client id -> mp_player_N), see PlayerFactions. */
     public final Map<String, String> clientFactions = new ConcurrentHashMap<>();
+    /** Each connected player's permanent player id (client id -> player id), from their hello. */
+    public final Map<String, String> clientPlayers = new ConcurrentHashMap<>();
+    /** Every player who has joined this world: their factions, looks and colonies, kept in its save. */
+    public final PlayerRegistry registry = new PlayerRegistry();
     /** Sends the world's faction relations and the players' factions to the clients (game thread). */
     public final ServerFactionSync factionSync = new ServerFactionSync(this);
     /** Connected players this game has no copy of the fleet of (game thread only), so it's only logged once. */
@@ -110,6 +114,7 @@ public class Server {
         } catch (JSONException e) {
             throw new UserError("Couldn't read this game's version, seed and mods: " + e.getMessage());
         }
+        registry.load(); //before anyone can join: who's who in this world
         isRunning = true;
         threadPool = Executors.newCachedThreadPool();
 
@@ -127,12 +132,10 @@ public class Server {
                         //match on both ends behind a router (NAT), and two machines can use the same local port
                         String clientId = newClientId();
                         ClientHandler handler = new ClientHandler(socket, clientId, this);
-                        String faction = assignFaction(clientId);
                         try {
                             JSONObject welcome = new JSONObject();
                             welcome.put("commandId","welcome");
                             welcome.put("id",clientId);
-                            welcome.put("faction", faction);
                             welcome.put("protocol",PROTOCOL_VERSION);
                             welcome.put("game",hostGame);
                             handler.sendMessage(welcome.toString());
@@ -292,6 +295,15 @@ public class Server {
                         }
                     });
                     break;
+                case "hello":
+                    //handled here, before this client's next message: their fleet's faction depends on it
+                    hello(clientId, json);
+                    break;
+                case "colonies":
+                    //the player's colonies as their game describes them (it runs them)
+                    JSONArray colonies = json.getJSONArray("colonies");
+                    gameThreadTasks.add(() -> factionSync.colonies(clientId, colonies));
+                    break;
                 case "playerFaction":
                     //the player's reputation (their own game decides it) and how their faction looks
                     gameThreadTasks.add(() -> factionSync.playerFaction(clientId, json));
@@ -337,22 +349,34 @@ public class Server {
     }
 
     /**
-     * Gives a joining player the first free player faction. With all SLOT_COUNT taken they're independent: they can
-     * still play, but they share the independents' reputation, and theirs isn't applied.
+     * A joining player says who they are (their permanent player id, the first thing their game sends): they get
+     * their own faction, reserved for them in this world for good (see PlayerRegistry), or a new one. With every
+     * player faction someone's, they're independent: they can still play, but share the independents' reputation,
+     * and their own reputation and colonies aren't applied. The same player connected twice (one save opened in two
+     * games) is refused: both would be the same faction.
      */
-    private synchronized String assignFaction(String clientId) {
-        for (int i = 1; i <= PlayerFactions.SLOT_COUNT; i++) {
-            String slot = PlayerFactions.slotId(i);
-            if (!clientFactions.containsValue(slot)) {
-                clientFactions.put(clientId, slot);
-                factionSync.joined(clientId);
-                return slot;
-            }
+    private synchronized void hello(String clientId, JSONObject json) throws JSONException {
+        String playerId = json.getString("playerId");
+        String name = json.optString("name", "?");
+        if (clientPlayers.containsValue(playerId)) {
+            MultiplayerLog.log().warn(name + " (" + playerId + ") is already connected: refused " + clientId + " (the same save in two games?)");
+            ClientHandler handler = clients.get(clientId);
+            if (handler != null) handler.closeConnection();
+            return;
         }
-        MultiplayerLog.log().warn("All " + PlayerFactions.SLOT_COUNT + " player factions are taken: " + clientId + " plays as independent");
-        clientFactions.put(clientId, Factions.INDEPENDENT);
+        clientPlayers.put(clientId, playerId);
+        String faction = registry.reserveFaction(playerId, name);
+        if (faction == null) {
+            MultiplayerLog.log().warn("All " + PlayerFactions.SLOT_COUNT + " player factions belong to someone: " + name + " plays as independent");
+            faction = Factions.INDEPENDENT;
+        }
+        clientFactions.put(clientId, faction);
         factionSync.joined(clientId);
-        return Factions.INDEPENDENT;
+        JSONObject reply = new JSONObject();
+        reply.put("commandId", "yourFaction");
+        reply.put("faction", faction);
+        sendTo(clientId, reply.toString());
+        MultiplayerLog.log().info(clientId + " is " + name + " (" + playerId + "), faction " + faction);
     }
 
     /** A player's fleet data (their fleet, its officers, or a diff) with their "player" faction made their player faction. */
@@ -498,6 +522,7 @@ public class Server {
         public void closeConnection() {
             clients.remove(clientId);
             interactions.remove(clientId); //a player who left isn't talking to anyone
+            clientPlayers.remove(clientId);
             String faction = clientFactions.remove(clientId);
             if (faction != null) gameThreadTasks.add(() -> factionSync.freed(faction)); //for the next player
             if (clientId.equals(localClientId)) localClientId = null;
