@@ -92,6 +92,21 @@ Unlicense, as its developer stated (also in `LICENSE`).
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
+Tested by the user on 2026-10-01: smoothing (good now), players list, no PvP, [PAUSED] (probably), jump flash (players
+only), hosting/tariff, setting the tariff, left alone in dialogs, orbit after a dialog (not while sped up), rename,
+jumping between locations, construction catch-up, reputation sound (mostly: sometimes doesn't play).
+Not tested yet: campaign messages, losing the whole fleet, debris.
+
+**Found by the user (2026-10-01), to fix:**
+- A. Other players' fleets are only seen within normal sensor range: `showOtherPlayers` (detected range +100000 on
+  copies, clients only) isn't working. Check `vsPlayer.visibility` of a player's copy with the bridge.
+- B. NPC fleets that jump just vanish on the client (the flash is only on a copy's location change; for NPC fleets
+  the server sends REMOVED as they leave the client's sight instead).
+- C. The host speeding up time: clients don't follow and resync constantly (clock jumps, orbits, positions).
+- D. The host trading at a client's colony: the owner's game gets nothing (no stock change, no tariff). The host's
+  ClientMarkets returns early when self-hosted, so its trades at another player's colony mirror are never sent on.
+- E. Trading at a player's colony raises reputation with independents instead of that player's faction.
+- F. A client's fleet orbiting a planet sometimes lets go and stops following it (the game says it stopped orbiting).
 - [x] Hostile NPC fleets (`54219c2`): tested. Copies had no AI (found with the bridge); CopyAI decides for them as
       vanilla's: Hegemony fleets show hostile after the reputation drop, an intercepting patrol fought, the battle
       result and the reputation hit reached the server. Still to watch: a fleet that survives a fight re-intercepting
@@ -109,17 +124,17 @@ Unlicense, as its developer stated (also in `LICENSE`).
 - [ ] Losing your whole fleet while connected (`988f9b6`): if the game makes a new player fleet, the log says "Our
       fleet is new (...)", and the others and the server keep seeing it (the server log has no repeated "No copy
       of ...'s fleet"). If no such line appears, vanilla keeps the same fleet and nothing was needed.
-- [ ] Players list (`4866ae0`): the multiplayer window's right side lists who's connected, on the server instance
+- [x] Players list (`4866ae0`): the multiplayer window's right side lists who's connected, on the server instance
       and on each client (own name "(you)"), updated as players join, leave and rename.
-- [ ] No PvP (`7c8341b`): flying into another player's fleet opens "comes alongside ..., another player's" with only
+- [x] No PvP (`7c8341b`): flying into another player's fleet opens "comes alongside ..., another player's" with only
       Leave (both fleets shown), on a client and on the host ("host current game"); fighting an NPC fleet next to
       another player doesn't pull them in ("supporting your forces" / "joining the enemy" never names a player).
-- [ ] Smoothing (`7c8341b`, `a614c32`, reworked in `2380126`): the user saw the first version work but stutter,
+- [x] Smoothing (`7c8341b`, `a614c32`, reworked in `2380126`): the user saw the first version work but stutter,
       mostly sideways to a fleet's course. Now copies take their game's velocity (synced with movement) and the
       position is eased in as one 2D vector, a little every frame, no 50-unit threshold (snap past 500 or on a
       location change). Check: other players' and NPC fleets glide without sideways jitter; planets don't jump at
       the 10 s orbit resync.
-- [ ] Closing the server (or losing the connection) while a client is in a dialog: the client's fleet name loses
+- [x] Closing the server (or losing the connection) while a client is in a dialog: the client's fleet name loses
       " [PAUSED]" (`a546ef8`); a save that has it loses it on loading.
 - [x] Clock (`3ec8821`): checked through the agent bridge (ss_diff status, both read at once): the client was
       4 game minutes off the server, inside the 5-minute dead band (it used to drift up to an hour, then jump).
@@ -127,22 +142,22 @@ Unlicense, as its developer stated (also in `LICENSE`).
       fields" in their log); a field salvaged while a player was offline is gone for them on rejoining (not
       brought back); with "host current game", the host's battles leave debris for the clients too, and the host
       salvaging it removes it for them. A field received late lasts only what it has left.
-- [ ] A client jumping: a blue flash where its fleet leaves and arrives, on the host and other clients (`1016605`,
+- [x] A client jumping: a blue flash where its fleet leaves and arrives, on the host and other clients (`1016605`,
       placed right since `facf7df`).
-- [ ] Hosting from your own game: a client trading at the host's colony; the server log says the tariff, the
+- [x] Hosting from your own game: a client trading at the host's colony; the server log says the tariff, the
       host's monthly report shows it (`cfff649`).
-- [ ] Docking at your own colony: "Set this colony's tariff" lists rates; picking one changes the tariff (colony
+- [x] Docking at your own colony: "Set this colony's tariff" lists rates; picking one changes the tariff (colony
       screen), the world's copy follows within 5 s, the menu returns to the main options. If the game rejects
       `rules.csv`/`settings.json` at launch, the log says so (`d29d3e8`).
 - [ ] A second client trading at your colony: the monthly report shows "Tariffs from other players" under it, paid
       at month end; your log says how much (`50b225c`).
-- [ ] Reputation change sound plays while connected (once per change; the saved-up one plays again on
+- [x] Reputation change sound plays while connected (once per change; the saved-up one plays again on
       disconnecting) (`85690fe`).
-- [ ] NPC fleets leave a player alone during a dialog/interception (no swarm afterwards) (`255db92`).
-- [ ] Fleet kept orbiting a planet after a dialog moves smoothly on the host (not every ~10 s) (`255db92`).
-- [ ] Renaming the character (console) logs `<old> is now <new>` on the server and renames "<name>'s Fleet".
-- [ ] Jumping between locations: the client's fleet stays visible on the host, NPC fleets keep arriving (`9282c56`).
-- [ ] Colony construction catches up after a host fast-forward and the host's copy matches it (`700b459`).
+- [x] NPC fleets leave a player alone during a dialog/interception (no swarm afterwards) (`255db92`).
+- [x] Fleet kept orbiting a planet after a dialog moves smoothly on the host (not every ~10 s) (`255db92`).
+- [x] Renaming the character (console) logs `<old> is now <new>` on the server and renames "<name>'s Fleet".
+- [x] Jumping between locations: the client's fleet stays visible on the host, NPC fleets keep arriving (`9282c56`).
+- [x] Colony construction catches up after a host fast-forward and the host's copy matches it (`700b459`).
 
 Tested OK: interception dialog + host freeze, debris fields, stations not destroyed by battles, colony trade with
 a second client (needs Commerce), player names in the join log, factions/reputation sync, battle results, colony
