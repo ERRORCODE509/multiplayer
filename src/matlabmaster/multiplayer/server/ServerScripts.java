@@ -6,6 +6,7 @@ import com.fs.starfarer.api.campaign.CampaignFleetAPI;
 import com.fs.starfarer.api.campaign.LocationAPI;
 import com.fs.starfarer.api.campaign.SectorEntityToken;
 import com.fs.starfarer.api.impl.campaign.ids.MemFlags;
+import com.fs.starfarer.api.util.Misc;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.MultiplayerModPlugin;
 import matlabmaster.multiplayer.updates.FleetSync;
@@ -18,6 +19,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -57,6 +59,8 @@ public class ServerScripts implements EveryFrameScript {
     private boolean ownFleetHidden = false;
     /** Where each fleet a player is talking to is held (fleet id -> location), see holdInteractionTargets. */
     private final Map<String, Vector2f> heldAt = new HashMap<>();
+    /** Players' fleets kept by what they're talking to (client id -> target id), see orbitWhileTalking. */
+    private final Map<String, String> orbiting = new HashMap<>();
 
     public ServerScripts(Server serverInstance){
         this.serverInstance = serverInstance;
@@ -158,6 +162,7 @@ public class ServerScripts implements EveryFrameScript {
         serverInstance.interactions.clear(); //nobody is connected to talk to anyone
         serverInstance.factionSync.stopped(); //nor in any player faction
         heldAt.clear();
+        orbiting.clear(); //the players' fleets themselves are removed just below
         hideOwnFleet(false);
         //a dedicated server kept copies of the players' fleets: they don't belong in its game
         List<CampaignFleetAPI> copies = new ArrayList<>();
@@ -196,22 +201,59 @@ public class ServerScripts implements EveryFrameScript {
     }
 
     /**
-     * Keeps each NPC fleet a player is in a dialog with where it was when the dialog opened. In single player the
-     * dialog pauses the game; here the world runs on, and the fleet would fly off mid-conversation. Runs after this
-     * frame's movement (sector scripts come after the locations), so the fleet doesn't move at all.
+     * In single player a dialog pauses the game; here the world runs on. An NPC fleet a player is in a dialog with
+     * is held where their game saw it (by their fleet), or it would fly off mid-conversation (or be elsewhere than
+     * they fight it); runs after this frame's movement (sector scripts come after the locations), so it doesn't move
+     * at all. A planet or station they talk to goes on, and their fleet stays by it, as in their game.
      */
     private void holdInteractionTargets() {
-        Set<String> targets = new HashSet<>(serverInstance.interactions.values());
-        heldAt.keySet().retainAll(targets);
-        for (String fleetId : targets) {
-            SectorEntityToken entity = Global.getSector().getEntityById(fleetId);
-            if (!(entity instanceof CampaignFleetAPI)) continue; //gone (destroyed, despawned)
-            CampaignFleetAPI fleet = (CampaignFleetAPI) entity;
-            if (fleet.isPlayerFleet() || fleet.hasTag("playerFleet")) continue; //players move themselves
-            Vector2f at = heldAt.computeIfAbsent(fleetId, id -> new Vector2f(fleet.getLocation()));
-            fleet.setLocation(at.x, at.y);
-            fleet.getVelocity().set(0f, 0f);
+        Set<String> held = new HashSet<>();
+        for (Map.Entry<String, Server.Interaction> entry : serverInstance.interactions.entrySet()) {
+            String clientId = entry.getKey();
+            Server.Interaction interaction = entry.getValue();
+            SectorEntityToken target = Global.getSector().getEntityById(interaction.target);
+            if (target == null) continue; //gone (destroyed, despawned)
+            if (target instanceof CampaignFleetAPI) {
+                CampaignFleetAPI fleet = (CampaignFleetAPI) target;
+                if (fleet.isPlayerFleet() || fleet.hasTag("playerFleet")) continue; //players move themselves
+                held.add(interaction.target);
+                //where the player's game saw it (by their fleet, here too), or where it is
+                Vector2f at = heldAt.computeIfAbsent(interaction.target,
+                        id -> new Vector2f(interaction.seenAt != null ? interaction.seenAt : fleet.getLocation()));
+                fleet.setLocation(at.x, at.y);
+                fleet.getVelocity().set(0f, 0f);
+            } else if (target.getOrbit() != null) {
+                orbitWhileTalking(clientId, target);
+            }
         }
+        heldAt.keySet().retainAll(held);
+
+        //players who aren't talking to what their fleet orbits any more: their game moves it again
+        for (Iterator<Map.Entry<String, String>> it = orbiting.entrySet().iterator(); it.hasNext(); ) {
+            Map.Entry<String, String> entry = it.next();
+            Server.Interaction interaction = serverInstance.interactions.get(entry.getKey());
+            if (interaction != null && interaction.target.equals(entry.getValue())) continue;
+            SectorEntityToken copy = Global.getSector().getEntityById(entry.getKey());
+            if (copy != null && copy.getOrbitFocus() != null && entry.getValue().equals(copy.getOrbitFocus().getId())) {
+                copy.setOrbit(null);
+            }
+            it.remove();
+        }
+    }
+
+    /**
+     * A player talking to a planet, station or anything else that orbits: their game paused for the dialog and
+     * keeps their fleet by it (InteractionOrbit), sending no movement meanwhile, so this game's copy of their fleet
+     * does the same, instead of standing still while the planet goes on and snapping to it afterwards.
+     */
+    private void orbitWhileTalking(String clientId, SectorEntityToken target) {
+        SectorEntityToken copy = Global.getSector().getEntityById(clientId);
+        if (!(copy instanceof CampaignFleetAPI) || copy.getContainingLocation() != target.getContainingLocation()) return;
+        if (copy.getOrbitFocus() == target) return; //already
+        float angle = Misc.getAngleInDegrees(target.getLocation(), copy.getLocation());
+        float radius = Misc.getDistance(target.getLocation(), copy.getLocation());
+        copy.setCircularOrbit(target, angle, radius, 100000f); //practically standing still, as in their game
+        orbiting.put(clientId, target.getId());
     }
 
     private void hideOwnFleet(boolean hide) {

@@ -25,6 +25,7 @@ import com.fs.starfarer.campaign.Faction;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.lwjgl.util.vector.Vector2f;
 
 public class Server {
     /** Bump whenever client and server messages change in a way an older version can't handle; checked on join. */
@@ -49,10 +50,22 @@ public class Server {
     /** Player fleets a dedicated server has asked their client for in full, so it asks only once. */
     private final Set<String> pendingPlayerSnapshots = ConcurrentHashMap.newKeySet();
     /**
-     * The NPC fleet each player is in a dialog with (client id -> fleet id). In single player the dialog pauses the
-     * game; here the world runs on, so ServerScripts holds these fleets still until the dialog closes.
+     * What each player is in a dialog with (client id -> interaction). In single player the dialog pauses the game;
+     * here the world runs on, so until the dialog closes ServerScripts holds an NPC fleet they talk to where their
+     * game saw it, and keeps their fleet by a planet or station they talk to, as their game does.
      */
-    public final Map<String, String> interactions = new ConcurrentHashMap<>();
+    public final Map<String, Interaction> interactions = new ConcurrentHashMap<>();
+
+    /** What a player is in a dialog with (an NPC fleet, a planet...), and where their game saw it then (or null). */
+    public static final class Interaction {
+        public final String target;
+        public final Vector2f seenAt;
+
+        Interaction(String target, Vector2f seenAt) {
+            this.target = target;
+            this.seenAt = seenAt;
+        }
+    }
     /** Each connected player's faction in this game and the others (client id -> mp_player_N), see PlayerFactions. */
     public final Map<String, String> clientFactions = new ConcurrentHashMap<>();
     /** Each connected player's permanent player id (client id -> player id), from their hello. */
@@ -278,10 +291,11 @@ public class Server {
                     break;
                 case "paused":
                 case "unpaused":
-                    //a player in a dialog: the world runs on, except the fleet they're talking to (ServerScripts holds it)
+                    //a player in a dialog: the world runs on, except what they're talking to (see interactions)
                     String target = "paused".equals(commandId) ? json.optString("interactionTarget", null) : null;
                     if (target != null) {
-                        interactions.put(clientId, target);
+                        Vector2f seenAt = json.has("targetX") ? new Vector2f((float) json.getDouble("targetX"), (float) json.getDouble("targetY")) : null;
+                        interactions.put(clientId, new Interaction(target, seenAt));
                     } else {
                         interactions.remove(clientId);
                     }

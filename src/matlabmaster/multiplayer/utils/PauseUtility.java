@@ -1,7 +1,6 @@
 package matlabmaster.multiplayer.utils;
 
 import com.fs.starfarer.api.Global;
-import com.fs.starfarer.api.campaign.CampaignFleetAPI;
 import com.fs.starfarer.api.campaign.InteractionDialogAPI;
 import com.fs.starfarer.api.campaign.SectorEntityToken;
 import matlabmaster.multiplayer.MultiplayerLog;
@@ -26,8 +25,12 @@ public class PauseUtility {
                     //the fleet we're talking to: the world doesn't pause for us, so the server holds it still
                     InteractionDialogAPI dialog = Global.getSector().getCampaignUI().getCurrentInteractionDialog();
                     SectorEntityToken target = dialog == null ? null : dialog.getInteractionTarget();
-                    if (target instanceof CampaignFleetAPI && target != Global.getSector().getPlayerFleet()) {
+                    //what we're talking to, and where we see it: the server holds a fleet there, and keeps our
+                    //fleet by a planet or station as this game does
+                    if (target != null && target != Global.getSector().getPlayerFleet() && target.getId() != null) {
                         packet.put("interactionTarget", target.getId());
+                        packet.put("targetX", target.getLocation().x);
+                        packet.put("targetY", target.getLocation().y);
                     }
                     markets.dialogOpened(client, target); //at a market: the server's stock
                     if (!client.isSelfHosted) orbit.start(target); //it moves on while we talk: stay by it

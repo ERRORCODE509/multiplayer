@@ -34,6 +34,8 @@ public class ClientScripts implements EveryFrameScript {
     private final InteractionOrbit interactionOrbit = new InteractionOrbit();
     /** Our reputation and faction as last sent to the server (null: not since joining), see sendOwnFaction. */
     private String factionSent = null;
+    /** Our reputation as last sent, to log what changes. */
+    private JSONObject reputationSent = null;
     private float factionTimer = 0f;
     /** Our colonies as last sent to the server (null: not since joining), see sendOwnColonies. */
     private String coloniesSent = null;
@@ -373,12 +375,21 @@ public class ClientScripts implements EveryFrameScript {
             JSONObject packet = new JSONObject();
             packet.put("commandId", "playerFaction");
             packet.putOpt("look", PlayerFactions.describeOwnFaction());
-            packet.put("reputation", PlayerFactions.ownReputation());
+            JSONObject reputation = PlayerFactions.ownReputation();
+            packet.put("reputation", reputation);
             packet.put("blueprints", PlayerFactions.ownBlueprints()); //our colonies' fleets in the world are built from them
             String text = packet.toString();
             if (text.equals(factionSent)) return;
             client.send(text);
             factionSent = text;
+            if (reputationSent != null) { //what changed since the last time (on joining it's all of it)
+                for (Iterator<?> it = reputation.keys(); it.hasNext(); ) {
+                    String id = (String) it.next();
+                    double before = reputationSent.optDouble(id, 0), now = reputation.getDouble(id);
+                    if (Math.abs(now - before) >= 0.005) MultiplayerLog.log().info("Our reputation with " + id + ": " + before + " -> " + now + " (sent to the server)");
+                }
+            }
+            reputationSent = reputation;
         } catch (Exception e) {
             MultiplayerLog.log().error("Couldn't send our reputation to the server", e);
         }

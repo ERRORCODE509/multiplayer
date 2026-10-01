@@ -4,6 +4,7 @@ import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.FactionAPI;
 import com.fs.starfarer.api.campaign.FactionDoctrineAPI;
 import com.fs.starfarer.api.impl.campaign.ids.Factions;
+import matlabmaster.multiplayer.MultiplayerLog;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -173,7 +174,11 @@ public class PlayerFactions {
         for (Iterator<?> it = reputation.keys(); it.hasNext(); ) {
             String id = (String) it.next();
             if (id.equals(Factions.PLAYER) || isSlot(id) || Global.getSector().getFaction(id) == null) continue;
-            slot.setRelationship(id, (float) reputation.getDouble(id));
+            float before = slot.getRelationship(id), now = (float) reputation.getDouble(id);
+            slot.setRelationship(id, now);
+            if (Math.abs(now - before) >= 0.005f) {
+                MultiplayerLog.log().info(slotId + "'s reputation with " + id + ": " + round(before) + " -> " + round(now));
+            }
         }
     }
 
