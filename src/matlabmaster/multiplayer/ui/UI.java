@@ -22,6 +22,8 @@ public class UI extends JFrame {
     private JComboBox<String> modeSelector;
     private JLabel serverTimeLabel;
     private JLabel playersLabel;
+    /** The server time last shown (see setServerTime); null after disconnecting, so it's shown again. */
+    private volatile String shownTime;
     private final DefaultListModel<String> playersModel = new DefaultListModel<>();
 
     private final Server server;
@@ -39,6 +41,7 @@ public class UI extends JFrame {
             public void onDisconnected() {
                 MultiplayerLog.log().debug("UI onDisconnected() callback triggered!");
                 serverTimeLabel.setText("Disconnected");
+                shownTime = null;
                 try {
                     isRunning = false;
                     updateButtonStyle();
@@ -56,6 +59,7 @@ public class UI extends JFrame {
         server.setListener(new Server.ServerListener() {
             @Override
             public void onServerStopped() {
+                shownTime = null;
                 isRunning = false;
                 updateButtonStyle();
             }
@@ -311,9 +315,12 @@ public class UI extends JFrame {
         int day   = clock.getDay();
         String shortMonth = clock.getShortMonthString();
         int hour = clock.getHour();
+        String formattedTime = String.format("%02d %02d %s %03d : %02d:00", day, month, shortMonth, year, hour);
+        //sent 20 times a second, and it only changes every game hour
+        if (formattedTime.equals(shownTime)) return;
+        shownTime = formattedTime;
 
         SwingUtilities.invokeLater(() -> {
-            String formattedTime = String.format("%02d %02d %s %03d : %02d:00", day, month, shortMonth, year, hour);
             boolean paused = serverTimeLabel.getText().endsWith(" (paused by the host)");
             serverTimeLabel.setText("Server Time: " + formattedTime + (paused ? " (paused by the host)" : ""));
         });
