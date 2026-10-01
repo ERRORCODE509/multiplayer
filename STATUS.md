@@ -69,7 +69,8 @@ rm -rf "$S" && mkdir -p "$S/mod" && javac --release 17 -nowarn -encoding UTF-8 -
       fields" in their log); a field salvaged while a player was offline is gone for them on rejoining (not
       brought back); with "host current game", the host's battles leave debris for the clients too, and the host
       salvaging it removes it for them. A field received late lasts only what it has left.
-- [ ] A client jumping: a blue flash where its fleet leaves and arrives, on the host and other clients (`1016605`).
+- [ ] A client jumping: a blue flash where its fleet leaves and arrives, on the host and other clients (`1016605`,
+      placed right since `facf7df`).
 - [ ] Hosting from your own game: a client trading at the host's colony; the server log says the tariff, the
       host's monthly report shows it (`cfff649`).
 - [ ] Docking at your own colony: "Set this colony's tariff" lists rates; picking one changes the tariff (colony
