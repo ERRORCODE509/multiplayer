@@ -73,8 +73,15 @@ public class FleetSerializer {
                 //copy was stuck there was sent no NPC fleets at all. Its position comes with the same update
                 LocationAPI from = fleet.getContainingLocation();
                 fleet.setOrbit(null);
-                if (from != null) from.removeEntity(fleet);
+                //a flash where it leaves and where it arrives, in place of the jump's own (no transition here)
+                java.awt.Color jump = new java.awt.Color(120, 190, 255, 255);
+                float size = Math.max(100f, fleet.getRadius() * 4f);
+                if (from != null) {
+                    from.addHitParticle(new org.lwjgl.util.vector.Vector2f(fleet.getLocation()), new org.lwjgl.util.vector.Vector2f(), size, 1f, 1f, jump);
+                    from.removeEntity(fleet);
+                }
                 area.addEntity(fleet);
+                area.addHitParticle(new org.lwjgl.util.vector.Vector2f(fleet.getLocation()), new org.lwjgl.util.vector.Vector2f(), size, 1f, 1f, jump);
                 break;
             case "isTransponderOn":
                 fleet.setTransponderOn((Boolean) value);
