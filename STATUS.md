@@ -112,7 +112,9 @@ Unlicense, as its developer stated (also in `LICENSE`).
 
 ## Needs testing (latest first)
 - [ ] **Players' colonies can't be attacked by other players; blockades and saturation bombardments run in the world
-  (`fa020c1`, untested).** Rebuild both jars, restart both games.
+  (`fa020c1`).** Tested OK by the user (2026-10-01): 1 (no military options), 2 (a League blockade: handed over,
+  spawned, arrived, the owner was told, beaten by another player (the host) and ended as defeated in both games).
+  Left: 3, 4, and whether the colony showed "Blockaded" while blockaded (not checked).
   1. Docking at another player's colony (online or offline): no "Consider your military options" (so no engage,
      raid, bombard, or Nexerelin invade); trading still works. The same at your own is unchanged.
   2. `ss_act raid {kind: "blockade"}` in the guest (Persean League blockade of your colony's system): handed over
@@ -125,7 +127,9 @@ Unlicense, as its developer stated (also in `LICENSE`).
      the world too", and the world's market is the Church's (other players' games just drop the mirror).
   4. Saturation bombardment of a colony's world copy (hard to trigger; console on the server): the owner's colony
      loses the same size, or is destroyed (decivilized) if the world's copy was.
-- [ ] **Crisis raids run in the world (`d47eedc`, protocol 7, untested).** Rebuild both jars, restart both games.
+- [ ] **Crisis raids run in the world (`d47eedc`, protocol 7).** Handover, spawning, being seen and being beaten by
+  another player work (tested with a blockade, same path). Left: a pirate raid's hostility to its owner
+  (intercepts), the hits on the colony (4) and the owner offline (5).
   Quickest: bridge `ss_act raid` in the player's game (guest) while connected, with a colony
   (`{factionId: "pirates", fleets: [3, 2], prepDays: 1}`); a real crisis raid works the same way.
   1. Guest log: "A Pirate Raid is coming for <system>: the world runs it (<id>)"; server log: "<name> handed over a
@@ -151,7 +155,7 @@ Not tested yet: campaign messages, losing the whole fleet, debris.
   to NPC fleets too). The boost that tried it (and didn't work) is gone (`d817355`).
 - C. **Won't fix:** time speed-up isn't supported in multiplayer (the user still uses it sometimes). Clients can't
   follow it (no API to fast-forward a game), so they resync constantly meanwhile; it runs fine otherwise.
-- [ ] B. NPC fleets that jump in or out of a client's sight flash as players' do (`d817355`).
+- [x] B. NPC fleets that jump in or out of a client's sight flash as players' do (`d817355`).
 - [ ] D. The host buying/selling at a client's colony: the owner's stock changes (sell a lot of fuel: surplus) and
       the tariff shows in the owner's monthly report, paid at month end (`26d6613`).
 - [ ] E. Trading at a player's colony raises reputation with that player's faction, not the independents
