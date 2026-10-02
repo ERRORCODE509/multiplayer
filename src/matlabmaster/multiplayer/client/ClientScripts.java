@@ -616,7 +616,16 @@ public class ClientScripts implements EveryFrameScript {
             JSONObject fresh = new JSONObject();
             for (Iterator<?> it = fields.keys(); it.hasNext(); ) {
                 String id = (String) it.next();
-                if (debrisKnown.add(id)) fresh.put(id, fields.get(id));
+                if (debrisKnown.add(id)) {
+                    fresh.put(id, fields.get(id));
+                    DebrisSync.changed(id, fields.getJSONObject(id)); //as sent
+                }
+            }
+            //a shared field (ours or the world's) a battle of ours just added to, or we recovered ships from: the others get it again
+            JSONObject all = DebrisSync.battleFields(own.getContainingLocation(), false);
+            for (Iterator<?> it = all.keys(); it.hasNext(); ) {
+                String id = (String) it.next();
+                if (!fresh.has(id) && debrisKnown.contains(id) && DebrisSync.changed(id, all.getJSONObject(id))) fresh.put(id, all.get(id));
             }
             if (fresh.length() > 0) {
                 JSONObject packet = new JSONObject();

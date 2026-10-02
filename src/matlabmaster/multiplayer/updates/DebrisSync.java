@@ -4,10 +4,14 @@ import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.CampaignTerrainAPI;
 import com.fs.starfarer.api.campaign.LocationAPI;
 import com.fs.starfarer.api.campaign.SectorEntityToken;
+import com.fs.starfarer.api.impl.campaign.ids.Drops;
+import com.fs.starfarer.api.impl.campaign.procgen.SalvageEntityGenDataSpec;
+import com.fs.starfarer.api.impl.campaign.rulecmd.salvage.special.ShipRecoverySpecial;
 import com.fs.starfarer.api.impl.campaign.terrain.DebrisFieldTerrainPlugin;
 import com.fs.starfarer.api.impl.campaign.terrain.DebrisFieldTerrainPlugin.DebrisFieldParams;
 import com.fs.starfarer.api.impl.campaign.terrain.DebrisFieldTerrainPlugin.DebrisFieldSource;
 import com.fs.starfarer.api.util.Misc;
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -22,8 +26,9 @@ import java.util.Set;
  * is gone from a game (salvaged, or it ran out), that game says so and it goes everywhere. A field is known by the
  * id it had in the game it came from, kept in its memory (an entity's id can't be relied on once it's been added).
  *
- * Field: {"location", "x", "y", "band", "density", "baseDensity", "glowsDays", "lastsDays", "salvageXP", ...}, the
- * days counted from now (a field sent to a player who joins later has been there a while).
+ * Field: {"location", "x", "y", "band", "density", "baseDensity", "glowsDays", "lastsDays", "salvageXP", "basic"
+ * (its basic salvage value), "ships" (to recover), ...}, the days counted from now (a field sent to a player who
+ * joins later has been there a while). Its random extras (weapons, cargo picks) are each game's own.
  */
 public class DebrisSync {
     private static final String ID = "$mp_debrisId";
@@ -92,13 +97,108 @@ public class DebrisSync {
             field.put("salvageXP", p.baseSalvageXP);
             field.put("minSize", p.minSize);
             field.put("maxSize", p.maxSize);
+            //what it holds: its basic salvage (what a battle adds to it) and the ships to recover from it
+            field.put("basic", basicValue(terrain));
+            field.put("ships", recoverableShips(terrain));
             fields.put(idOf(terrain), field);
         }
         return fields;
     }
 
+    /** Each shared field's contents as last sent or received (id -> signature()), see changed(). */
+    private static final java.util.Map<String, String> knownContents = new java.util.HashMap<>();
+
+    /** What a field holds, for changed(): its basic salvage and how many ships can be recovered from it. */
+    private static String signature(JSONObject field) {
+        JSONArray ships = field.optJSONArray("ships");
+        return field.optLong("basic", 0) + ":" + (ships == null ? 0 : ships.length());
+    }
+
+    /**
+     * Whether a field holds something else than when it was last sent or received: a later battle nearby added to
+     * it (vanilla adds its salvage to a field rather than making another), or ships were recovered from it, so the
+     * others' copies need it again. Remembers it as it is now.
+     */
+    public static boolean changed(String id, JSONObject field) {
+        String now = signature(field);
+        String known = knownContents.put(id, now);
+        return known != null && !known.equals(now);
+    }
+
+    /** The value of a field's basic salvage (vanilla's BASIC drop: what a battle puts in it). */
+    private static int basicValue(SectorEntityToken field) {
+        int value = 0;
+        if (field.getDropValue() == null) return 0;
+        for (SalvageEntityGenDataSpec.DropData drop : field.getDropValue()) {
+            if (Drops.BASIC.equals(drop.group)) value += drop.value;
+        }
+        return value;
+    }
+
+    /** A field's basic salvage set to this value (replacing what vanilla's addDebrisField puts in by default). */
+    private static void setBasicValue(SectorEntityToken field, int value) {
+        if (value <= 0) return;
+        SalvageEntityGenDataSpec.DropData basic = null;
+        for (SalvageEntityGenDataSpec.DropData drop : field.getDropValue()) {
+            if (Drops.BASIC.equals(drop.group)) {
+                if (basic == null) basic = drop;
+                else drop.value = 0;
+            }
+        }
+        if (basic == null) {
+            basic = new SalvageEntityGenDataSpec.DropData();
+            basic.group = Drops.BASIC;
+            field.addDropValue(basic);
+        }
+        basic.value = value;
+    }
+
+    /** The ships that can be recovered from a field (the battle's wrecks): [{"variant", "condition", "name", "sMod"}]. */
+    private static JSONArray recoverableShips(SectorEntityToken field) throws JSONException {
+        JSONArray ships = new JSONArray();
+        ShipRecoverySpecial.ShipRecoverySpecialData data = ShipRecoverySpecial.getSpecialData(field, null, false, false);
+        if (data == null) return ships;
+        for (ShipRecoverySpecial.PerShipData ship : data.ships) {
+            String variant = ship.variantId != null ? ship.variantId : ship.variant != null ? ship.variant.getHullVariantId() : null;
+            if (variant == null) continue;
+            JSONObject entry = new JSONObject();
+            entry.put("variant", variant);
+            entry.put("condition", ship.condition == null ? ShipRecoverySpecial.ShipCondition.WRECKED.name() : ship.condition.name());
+            if (ship.shipName != null) entry.put("name", ship.shipName);
+            entry.put("sMod", ship.sModProb);
+            ships.put(entry);
+        }
+        return ships;
+    }
+
+    /** A field's recoverable ships made the same as the other game's (none left there: none here either). */
+    private static void setRecoverableShips(SectorEntityToken field, JSONArray ships) throws JSONException {
+        if (ships == null) return;
+        ShipRecoverySpecial.ShipRecoverySpecialData data = ShipRecoverySpecial.getSpecialData(field, null, ships.length() > 0, false);
+        if (data == null) return;
+        data.ships.clear();
+        for (int i = 0; i < ships.length(); i++) {
+            JSONObject entry = ships.getJSONObject(i);
+            try {
+                if (Global.getSettings().getVariant(entry.getString("variant")) == null) continue; //not in this game
+            } catch (RuntimeException e) {
+                continue;
+            }
+            ShipRecoverySpecial.ShipCondition condition;
+            try {
+                condition = ShipRecoverySpecial.ShipCondition.valueOf(entry.optString("condition", "WRECKED"));
+            } catch (IllegalArgumentException e) {
+                condition = ShipRecoverySpecial.ShipCondition.WRECKED;
+            }
+            ShipRecoverySpecial.PerShipData ship = new ShipRecoverySpecial.PerShipData(entry.getString("variant"), condition, (float) entry.optDouble("sMod", 0));
+            if (entry.has("name")) ship.shipName = entry.getString("name");
+            data.addShip(ship);
+        }
+    }
+
     /** Adds a field from another game (or updates it, a later battle having added to it). */
     public static void apply(String id, JSONObject field) throws JSONException {
+        knownContents.put(id, signature(field));
         CampaignTerrainAPI existing = find(id);
         if (existing != null) {
             DebrisFieldTerrainPlugin plugin = (DebrisFieldTerrainPlugin) existing.getPlugin();
@@ -106,6 +206,8 @@ public class DebrisSync {
             p.density = (float) field.getDouble("density");
             p.lastsDays += (float) field.getDouble("lastsDays") - plugin.getDaysLeft(); //its age here stays as it is
             p.baseSalvageXP = field.getLong("salvageXP");
+            setBasicValue(existing, field.optInt("basic", 0));
+            setRecoverableShips(existing, field.optJSONArray("ships"));
             return;
         }
         String locationId = field.getString("location");
@@ -122,6 +224,8 @@ public class DebrisSync {
         SectorEntityToken debris = Misc.addDebrisField(location, p, null);
         debris.setLocation((float) field.getDouble("x"), (float) field.getDouble("y"));
         debris.getMemoryWithoutUpdate().set(ID, id);
+        setBasicValue(debris, field.optInt("basic", 0));
+        setRecoverableShips(debris, field.optJSONArray("ships"));
     }
 
     /** A field gone in another game: gone here too. */

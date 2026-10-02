@@ -89,14 +89,16 @@ public class ServerDebris {
             JSONObject fresh = new JSONObject();
             for (Iterator<?> it = now.keys(); it.hasNext(); ) {
                 String id = (String) it.next();
-                if (known.add(id)) fresh.put(id, now.get(id));
+                boolean isNew = known.add(id);
+                //new here, or one a battle here just added to or ships were recovered from (the players' copies need it again)
+                if (DebrisSync.changed(id, now.getJSONObject(id)) || isNew) fresh.put(id, now.get(id));
             }
             if (fresh.length() > 0) {
                 JSONObject packet = new JSONObject();
                 packet.put("commandId", "debrisFields");
                 packet.put("fields", fresh);
                 server.broadcastWorld(packet.toString());
-                MultiplayerLog.log().info("Sent " + fresh.length() + " new battle debris fields to the players");
+                MultiplayerLog.log().info("Sent " + fresh.length() + " new or changed battle debris fields to the players");
             }
             for (Iterator<String> it = known.iterator(); it.hasNext(); ) {
                 String id = it.next();
