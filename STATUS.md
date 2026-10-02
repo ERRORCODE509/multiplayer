@@ -73,7 +73,7 @@ Unlicense, as its developer stated (also in `LICENSE`).
 - The **server's game is the only authority on the world** (NPC fleets, clock, markets, economy); each **player's
   game is the authority on their own fleet, reputation and colonies**. Clients strip sector scripts while connected
   (`utils/SectorScriptsUtility`, keeps core-engine scripts and `BaseEventIntel` events) and show server-driven copies.
-- Protocol version 7 (`server/Server.PROTOCOL_VERSION`). Join: `welcome` (client id) -> client sends `hello` (permanent
+- Protocol version 8 (`server/Server.PROTOCOL_VERSION`). Join: `welcome` (client id) -> client sends `hello` (permanent
   player id from `utils/PlayerIdentity`, name) -> server reserves a player faction (`server/PlayerRegistry`, kept in
   the world save's persistent data) and replies `yourFaction`.
 - `server/Server` message dispatch (network threads; game work goes through `gameThreadTasks`). `server/ServerScripts`
@@ -106,11 +106,36 @@ Unlicense, as its developer stated (also in `LICENSE`).
   (`$mp_playerColony`); `ColonyMirrors.create` never replaces another player's mirror.
   `utils/FleetFlags`: NPC fleets carry their `$cfai_makeHostile_<faction>` and rep-impact flags to the copies
   (made hostile to your faction = hostile to you); the raid's plain `$cfai_makeHostile` (the host) is cleared.
+- Shared world (protocol 8): `updates/EntitySync` + `server/ServerEntities` + `client/WorldEntities` (salvageable
+  things: `worldEntities` every 3 s per player's location, `entityGone` from a player, `worldEntityGone` to the
+  rest, `worldEntitiesGone` on joining from the registry's "entitiesGone"; only ids the world listed are touched).
+  `updates/WorldOwnership` + `server/ServerOwnership` (`worldOwnership`: markets' owners and sizes, objectives'
+  owners, removed markets; all on joining, changes every 5 s). `updates/WorldMarkets` (`requestWorldMarket` ->
+  `worldMarket`: a copy of a world market the player's game lacks, station included; `$mp_worldMarketCopy`).
+  `updates/WorldBounties` + `client/BountyBoard`/`WorldBountyIntel` (`worldBounties` board, `bountyReward` from
+  BattleSync for a person bounty's target; system bounties paid client-side after its battles).
 - Agent (`-javaagent`, added by the launcher): `NearestPlayer` (fleet spawning around every player),
   `FullRateLocations` (locations with a player run every frame; patches `CampaignEngine.advance`, 17 calls).
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
+- [ ] **More of the world shared (protocol 8: `9c18451`, `254fc36`, `1b59692`, `5c19c53`, `ab4fc94`, `b3beae8`,
+  untested).** Rebuild done; restart both games (both need the new jar).
+  1. Salvage: salvage something in the world (a derelict ship, a cache, a probe) from your game: your log "Salvaged
+     <name>: the world hears of it", server log "<name> salvaged <name>: gone from the world"; it's gone from the
+     server's instance and any other player's game. Salvaged from the server's instance: gone from yours within a
+     few seconds while you're in that system ("... gone from the world ... gone here too"). A player joining later
+     doesn't find it either.
+  2. World owners: change a market's owner on the server (Nexerelin invasion, or console `setmarketowner`) or a
+     relay's: within 5 s your game shows the new owner (campaign log "<market> is now <faction>'s"); on joining,
+     your game takes all the world's owners and sizes (log "The world's owners: N markets ... changed here").
+  3. Bounties: the intel tab (Bounties) lists the world's person and system bounties while connected (gone after
+     leaving, never in your save). Beat a person bounty's target from your game: "Bounty on <name> collected ...",
+     credits and reputation, the bounty leaves every player's list. Fight hostile ships near a system bounty's
+     market: "System bounty at <market>: N credits received".
+  4. World markets: a pirate base (or a Nexerelin colony) the world founded appears in your game (log "The world's
+     <name> (pirates) is here too (with its station)"), hidden until discovered like any base; trading there uses
+     the world's stock; destroyed in the world, it's gone from your game; gone from your game after leaving.
 - [ ] **Fixes from the 2026-10-01 raid tests (`f946e9e`, `f041d45`, untested; `f041d45` is titled "STATUS.md: ..." but also holds the code: dedicated server visitor trades, ending raids finish).**
   1. Another player's colony (e.g. the server's instance at a client's colony): "Consider your military options"
      is greyed out with a tooltip; Trade and Esc work again (removing the option had broken that menu).
@@ -246,6 +271,9 @@ hyperspace gravity wells, factions shown in the intel tab only while connected.
   capture while the owner is online would need the PvP design too. Not covered: Nexerelin's remote invasions
   launched from a player's own intel screen (no dialog).
 - Visitors' prices at a player's colony come from their own game's copy (out of its economy): may differ.
-- Salvage loot isn't shared, and a later battle adding to an existing field doesn't update the others' copies.
+- A later battle adding to an existing debris field doesn't update the others' copies. Salvage done while the
+  world's game wasn't hosting, or a player's own offline salvage, isn't shared (only what happens while connected).
+- A player's save may have markets the world doesn't (their own single-player pirate bases...): they stay, and
+  trading there stays in that game. NPC markets' conditions and industries aren't synced (only owners and sizes).
 - Clock: a client stays up to 5 game minutes (the dead band) behind the server, plus the network delay.
 - Players are always neutral to each other and can't fight (PlayerEncounters): PvP would need a real design.
