@@ -120,7 +120,7 @@ Unlicense, as its developer stated (also in `LICENSE`).
 
 ## Needs testing (latest first)
 - [ ] **More of the world shared (protocol 8: `9c18451`, `254fc36`, `1b59692`, `5c19c53`, `ab4fc94`, `b3beae8`,
-  untested; also `f9952a2`, `a9a7dea`, `1257987`, `60be6c7`).** Rebuild done; restart both games (both need the new jar).
+  untested; also `f9952a2`, `a9a7dea`, `1257987`, `60be6c7`, `254c6f5`, `926590a`).** Rebuild done; restart both games (both need the new jar).
   1. Salvage: salvage something in the world (a derelict ship, a cache, a probe) from your game: your log "Salvaged
      <name>: the world hears of it", server log "<name> salvaged <name>: gone from the world"; it's gone from the
      server's instance and any other player's game. Salvaged from the server's instance: gone from yours within a
@@ -142,6 +142,9 @@ Unlicense, as its developer stated (also in `LICENSE`).
   6. Your game's own fleets (`1257987`, `60be6c7`): a mission's fleet (a bar event's target, a contact's) moves and
      acts normally while connected (it froze before); joining keeps the fleets your missions need (log "Kept N
      fleets this game's missions need") instead of removing them with the rest.
+  7. Raiding or bombarding an NPC market from your game (`926590a`): your log "We hit <market>: the world's takes it
+     too", server log "<name> hit <market>: -N stability ..."; a saturation bombardment shrinks it in the world (the
+     other players see the new size) or destroys it.
 - [ ] **Fixes from the 2026-10-01 raid tests (`f946e9e`, `f041d45`, untested; `f041d45` is titled "STATUS.md: ..." but also holds the code: dedicated server visitor trades, ending raids finish).**
   1. Another player's colony (e.g. the server's instance at a client's colony): "Consider your military options"
      is greyed out with a tooltip; Trade and Esc work again (removing the option had broken that menu).
