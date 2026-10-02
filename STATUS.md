@@ -111,11 +111,16 @@ Unlicense, as its developer stated (also in `LICENSE`).
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
-- [ ] **Fixes from the 2026-10-01 raid tests (`f946e9e`, untested).**
+- [ ] **Fixes from the 2026-10-01 raid tests (`f946e9e`, `03f5406`, untested).**
   1. Another player's colony (e.g. the server's instance at a client's colony): "Consider your military options"
      is greyed out with a tooltip; Trade and Esc work again (removing the option had broken that menu).
   2. Then D: trading there from the server's instance pays the owner a tariff (the owner's own trades never do:
-     vanilla charges no tariff at your own colony).
+     vanilla charges no tariff at your own colony). On a dedicated server its own fleet's trades at a player's
+     colony didn't reach the owner at all (only "host current game" did): now they do (server log "The server's own
+     fleet traded at <colony> (sent to its owner)", owner's log "A visitor traded at ..."). Also check the colony's
+     ships are for sale there (the world's copy showed none).
+  7. When the world ends a raid, your intel finishes it while you're connected (it stayed "ending" until you
+     left).
   3. A raid that raids your colony: your intel says "The ... are withdrawing" (not "failed"/"defeated"); the hit
      says "(Luddic Path raid)" etc., not "(Raid)".
   4. A raid made with a prep time (`ss_act raid` prepDays: 3) waits that long in the world before leaving.

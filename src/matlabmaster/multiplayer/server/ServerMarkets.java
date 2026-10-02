@@ -1,6 +1,7 @@
 package matlabmaster.multiplayer.server;
 
 import com.fs.starfarer.api.Global;
+import com.fs.starfarer.api.campaign.SectorEntityToken;
 import com.fs.starfarer.api.campaign.econ.MarketAPI;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.updates.MarketSync;
@@ -74,7 +75,9 @@ public class ServerMarkets {
             MarketAPI mirror = ColonyMirrors.find(marketId);
             String player = server.clientPlayers.get(clientId);
             if (mirror == null || player == null || !player.equals(ColonyMirrors.ownerOf(mirror))) return; //not theirs
-            MarketSync.apply(mirror, snapshot, false);
+            boolean visiting = mirror == ownVisit;
+            MarketSync.apply(mirror, snapshot, visiting); //this game's own player is at it: its restock is done
+            if (visiting) ownBefore = MarketSync.snapshot(mirror, false);
             answer(marketId);
         } catch (Exception e) {
             MultiplayerLog.log().error("Failed to take " + clientId + "'s colony stock", e);
@@ -98,17 +101,62 @@ public class ServerMarkets {
             }
             //the host ("host current game") traded at this very copy: it has the trade already
             if (!server.isLocalClient(clientId)) MarketSync.applyTrade(mirror, trade);
-            String ownerId = ColonyMirrors.ownerOf(mirror);
-            String owner = server.clientOf(ownerId);
-            if (owner != null) {
-                server.sendTo(owner, tradePacket(trade).toString());
-                MultiplayerLog.log().info(server.who(clientId) + " traded at " + mirror.getName() + " (sent to its owner)");
-            } else {
-                server.registry.queueTrade(ownerId, trade);
-                MultiplayerLog.log().info(server.who(clientId) + " traded at " + mirror.getName() + " (its owner gets it when they're back)");
-            }
+            toOwner(server.who(clientId), mirror, trade);
         } catch (Exception e) {
             MultiplayerLog.log().error("Failed to apply a trade from " + clientId, e);
+        }
+    }
+
+    /** A trade at a player's colony (its copy here has it): to its owner's game now, or when they're back. */
+    private void toOwner(String who, MarketAPI mirror, JSONObject trade) throws JSONException {
+        String ownerId = ColonyMirrors.ownerOf(mirror);
+        String owner = server.clientOf(ownerId);
+        if (owner != null) {
+            server.sendTo(owner, tradePacket(trade).toString());
+            MultiplayerLog.log().info(who + " traded at " + mirror.getName() + " (sent to its owner)");
+        } else {
+            server.registry.queueTrade(ownerId, trade);
+            MultiplayerLog.log().info(who + " traded at " + mirror.getName() + " (its owner gets it when they're back)");
+        }
+    }
+
+    /** A dedicated server's own player at another player's colony (its copy here), while the dialog is open. */
+    private MarketAPI ownVisit;
+    /** Its stock when they got there (or when the owner's arrived): what their trade is measured against. */
+    private JSONObject ownBefore;
+
+    /**
+     * Every frame on a dedicated server (ServerScripts), with what its own player is in a dialog with (or null).
+     * Somebody plays it after all (testing, the host looking around): at a player's colony they're a visitor like
+     * any other, so the owner's game gets their trades (and the tariff). On arriving its own restock is done and
+     * undone (MarketSync.apply), so opening the trade screen doesn't restock the copy with the world's goods and
+     * count that as trading, then the owner's stock is asked for; on leaving, what changed goes to the owner.
+     */
+    void ownDialog(SectorEntityToken target) {
+        MarketAPI market = target == null ? null : target.getMarket();
+        if (!ColonyMirrors.isMirror(market) || !MarketSync.hasShared(market)) market = null;
+        if (market == ownVisit) return;
+        try {
+            if (ownVisit != null && ownBefore != null) {
+                JSONObject trade = MarketSync.trade(ownVisit, ownBefore);
+                if (trade != null) toOwner("The server's own fleet", ownVisit, trade);
+            }
+        } catch (Exception e) {
+            MultiplayerLog.log().error("Couldn't pass on the trades at " + ownVisit.getName(), e);
+        }
+        ownVisit = market;
+        ownBefore = null;
+        if (market == null) return;
+        try {
+            MarketSync.apply(market, MarketSync.snapshot(market, false), true);
+            ownBefore = MarketSync.snapshot(market, false);
+            String owner = server.clientOf(ColonyMirrors.ownerOf(market));
+            if (owner != null) {
+                server.sendTo(owner, new JSONObject().put("commandId", "colonyStockRequest").put("marketId", market.getId()).toString());
+            }
+        } catch (Exception e) {
+            ownBefore = null;
+            MultiplayerLog.log().error("Couldn't get the stock of " + market.getName() + " for the server's own fleet", e);
         }
     }
 

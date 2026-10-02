@@ -3,6 +3,7 @@ package matlabmaster.multiplayer.utils;
 import com.fs.starfarer.api.EveryFrameScript;
 import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.impl.campaign.intel.events.BaseEventIntel;
+import com.fs.starfarer.api.impl.campaign.intel.group.FleetGroupIntel;
 import matlabmaster.multiplayer.client.ClientScripts;
 import matlabmaster.multiplayer.client.OwnRaids;
 import matlabmaster.multiplayer.server.ServerScripts;
@@ -24,6 +25,7 @@ public class SectorScriptsUtility {
             if (script instanceof ClientScripts || script instanceof ServerScripts) continue; //never remove our own scripts
             if (isGameMechanic(script)) continue;
             if (isPlayerEvent(script)) continue;
+            if (isEndingRaid(script)) continue;
             if (OwnRaids.isFrozen(script)) { //the world runs it: never put back, see OwnRaids
                 savedScripts.remove(script);
                 Global.getSector().removeScript(script);
@@ -54,6 +56,14 @@ public class SectorScriptsUtility {
      */
     private static boolean isPlayerEvent(EveryFrameScript script) {
         return script instanceof BaseEventIntel;
+    }
+
+    /**
+     * A raid or blockade that's ending (the world's ended it, see OwnRaids): it only counts down to leaving the intel
+     * tab (vanilla's advance does nothing else once it's ending), so it runs while connected too.
+     */
+    private static boolean isEndingRaid(EveryFrameScript script) {
+        return script instanceof FleetGroupIntel && (((FleetGroupIntel) script).isEnding() || ((FleetGroupIntel) script).isEnded());
     }
 
     public void restoreScripts(){

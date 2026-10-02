@@ -3,6 +3,7 @@ package matlabmaster.multiplayer.server;
 import com.fs.starfarer.api.EveryFrameScript;
 import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.CampaignFleetAPI;
+import com.fs.starfarer.api.campaign.InteractionDialogAPI;
 import com.fs.starfarer.api.campaign.LocationAPI;
 import com.fs.starfarer.api.campaign.SectorEntityToken;
 import com.fs.starfarer.api.campaign.ai.ModularFleetAIAPI;
@@ -117,6 +118,9 @@ public class ServerScripts implements EveryFrameScript {
         if (serverInstance.isDedicated()) {
             hideOwnFleet(true);
             keepOwnFleetSupplied(amount);
+            //its own player at a player's colony trades there as a visitor (ServerMarkets)
+            InteractionDialogAPI dialog = Global.getSector().getCampaignUI().getCurrentInteractionDialog();
+            serverInstance.markets.ownDialog(dialog == null ? null : dialog.getInteractionTarget());
             //nobody plays here, so nothing should hold the world up
             if (paused && !Global.getSector().getCampaignUI().isShowingDialog()) {
                 Global.getSector().setPaused(false);
