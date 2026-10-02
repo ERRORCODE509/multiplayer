@@ -96,6 +96,7 @@ public class WorldOwnership {
                 if (applyMarket(id, markets.getJSONObject(id), announce)) changedMarkets++;
             }
         }
+        if (!announce && markets != null) logOwnOnly(markets);
         JSONArray removed = state.optJSONArray("removedMarkets");
         if (removed != null) {
             for (int i = 0; i < removed.length(); i++) {
@@ -157,6 +158,19 @@ public class WorldOwnership {
             changed = true;
         }
         return changed;
+    }
+
+    /**
+     * On joining: the markets this save has that the world doesn't (its own pirate bases, a colony a faction founded
+     * in this save...). They stay, but they aren't the world's: trading there stays in this game. Logged once.
+     */
+    private static void logOwnOnly(JSONObject worldMarkets) {
+        List<String> own = new ArrayList<>();
+        for (MarketAPI market : Global.getSector().getEconomy().getMarketsCopy()) {
+            if (market.isPlayerOwned() || ColonyMirrors.isMirror(market) || worldMarkets.has(market.getId())) continue;
+            own.add(market.getName() + " (" + market.getFactionId() + ")");
+        }
+        if (!own.isEmpty()) MultiplayerLog.log().info("This save has " + own.size() + " markets the world doesn't (trading there stays here): " + String.join(", ", own));
     }
 
     /** Left the server or loaded another game. */
