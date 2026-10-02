@@ -4,10 +4,16 @@ import com.fs.starfarer.api.EveryFrameScript;
 import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.comm.IntelInfoPlugin;
 import com.fs.starfarer.api.impl.campaign.fleets.RouteManager;
+import com.fs.starfarer.api.campaign.StarSystemAPI;
+import com.fs.starfarer.api.campaign.econ.MarketAPI;
+import com.fs.starfarer.api.impl.campaign.ids.Conditions;
+import com.fs.starfarer.api.impl.campaign.intel.group.BlockadeFGI;
 import com.fs.starfarer.api.impl.campaign.intel.group.FGAction;
 import com.fs.starfarer.api.impl.campaign.intel.group.FGWaitAction;
 import com.fs.starfarer.api.impl.campaign.intel.group.FleetGroupIntel;
 import com.fs.starfarer.api.impl.campaign.intel.group.GenericRaidFGI;
+import com.fs.starfarer.api.impl.campaign.intel.group.KnightsOfLuddTakeoverExpedition;
+import com.fs.starfarer.api.util.Misc;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.updates.RaidSync;
 import matlabmaster.multiplayer.utils.PlayerIdentity;
@@ -71,10 +77,15 @@ public class OwnRaids {
             String id = PlayerIdentity.id() + "-" + UUID.randomUUID().toString().substring(0, 8); //unique to this player
             handed.put(id, raid);
             freeze(raid);
-            MultiplayerLog.log().info("A " + raid.getBaseName() + " is coming for " + raid.getParams().raidParams.where.getName() + ": the world runs it (" + id + ")");
+            MultiplayerLog.log().info("A " + raid.getBaseName() + " is coming for " + RaidSync.target(raid).getName() + ": the world runs it (" + id + ")");
         }
         for (Map.Entry<String, GenericRaidFGI> entry : new ArrayList<>(handed.entrySet())) {
             GenericRaidFGI raid = entry.getValue();
+            //its action done here, not by the world (the Knights took the colony over: their vanilla code, here): over
+            if (!raid.isEnding() && !raid.isEnded() && raid.getCurrentAction() != null && raid.getCurrentAction().isActionFinished()) {
+                raid.finish(false);
+                MultiplayerLog.log().info("The " + raid.getBaseName() + " is over here (" + entry.getKey() + ")");
+            }
             if (raid.isEnding() || raid.isEnded()) {
                 //ended here (the crisis called it off): the world's goes home too
                 handed.remove(entry.getKey());
@@ -124,6 +135,24 @@ public class OwnRaids {
                 raid.sendUpdateIfPlayerHasIntel(done.getId(), false);
             }
         }
+        blockade(raid);
+    }
+
+    /**
+     * A blockade (the League's) blockading: its condition on our colonies there, as vanilla's own puts it on while
+     * blockading (its accessibility penalty is the blockade's to say, from its strength there); off otherwise. The
+     * Knights' takeover has none (its own economy listener does its part here, see WorldBlockades).
+     */
+    private static void blockade(GenericRaidFGI raid) {
+        if (!(raid instanceof BlockadeFGI) || raid instanceof KnightsOfLuddTakeoverExpedition) return;
+        BlockadeFGI blockade = (BlockadeFGI) raid;
+        boolean on = raid.isCurrent(GenericRaidFGI.PAYLOAD_ACTION) && !raid.isEnding() && !raid.isEnded();
+        StarSystemAPI where = RaidSync.target(raid);
+        if (where == null || blockade.getBlockadeParams() == null) return;
+        for (MarketAPI market : Misc.getMarketsInLocation(where, blockade.getBlockadeParams().targetFaction)) {
+            if (on && !market.hasCondition(Conditions.BLOCKADED)) market.addCondition(Conditions.BLOCKADED, blockade);
+            else if (!on && market.hasCondition(Conditions.BLOCKADED)) market.removeCondition(Conditions.BLOCKADED);
+        }
     }
 
     /**
@@ -135,10 +164,10 @@ public class OwnRaids {
         if (raid == null || raid.isEnding() || raid.isEnded()) return;
         if (RaidSync.ABORTED.equals(outcome)) {
             raid.abort();
-            MultiplayerLog.log().info("The " + raid.getBaseName() + " on " + raid.getParams().raidParams.where.getName() + " was defeated");
+            MultiplayerLog.log().info("The " + raid.getBaseName() + " on " + RaidSync.target(raid).getName() + " was defeated");
         } else {
             raid.finish(false);
-            MultiplayerLog.log().info("The " + raid.getBaseName() + " on " + raid.getParams().raidParams.where.getName() + " is over (" + outcome + ")");
+            MultiplayerLog.log().info("The " + raid.getBaseName() + " on " + RaidSync.target(raid).getName() + " is over (" + outcome + ")");
         }
         if (!Global.getSector().getScripts().contains(raid)) Global.getSector().addScript(raid); //to finish ending
     }

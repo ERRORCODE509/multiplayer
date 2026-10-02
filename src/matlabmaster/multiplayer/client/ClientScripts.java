@@ -201,6 +201,7 @@ public class ClientScripts implements EveryFrameScript {
         sectorScriptsUtility.forgetScripts();
         interactionOrbit.forget();
         ownRaids.reset();
+        ownColonyIds = null; //another game's colonies
         PauseUtility.clearPausedName(); //a save from before this was fixed may have it
         PositionSmoothing.clear();
         //a save made during a session has the other players' fleets as they were then; they come back on joining
@@ -583,7 +584,9 @@ public class ClientScripts implements EveryFrameScript {
         try {
             JSONObject packet = new JSONObject();
             packet.put("commandId", "colonies");
-            packet.put("colonies", ColonyMirrors.describeOwnColonies());
+            JSONArray colonies = ColonyMirrors.describeOwnColonies();
+            sendLostColonies(colonies);
+            packet.put("colonies", colonies);
             String text = packet.toString();
             if (text.equals(coloniesSent)) return;
             boolean joined = coloniesSent == null;
@@ -594,6 +597,29 @@ public class ClientScripts implements EveryFrameScript {
         } catch (Exception e) {
             MultiplayerLog.log().error("Couldn't send our colonies to the server", e);
         }
+    }
+
+    /** Our colonies' ids as last described, to tell which we've lost since (see sendLostColonies); null: none yet. */
+    private Set<String> ownColonyIds;
+
+    /**
+     * Colonies we had and no longer have because another faction has them now (taken over: the Knights of Ludd,
+     * say): the world's copy becomes theirs too. Sent before the colonies, which would otherwise just remove it.
+     */
+    private void sendLostColonies(JSONArray colonies) throws org.json.JSONException {
+        Set<String> ids = new HashSet<>();
+        for (int i = 0; i < colonies.length(); i++) ids.add(colonies.getJSONObject(i).getString("id"));
+        if (ownColonyIds != null) {
+            for (String id : ownColonyIds) {
+                if (ids.contains(id)) continue;
+                com.fs.starfarer.api.campaign.econ.MarketAPI market = Global.getSector().getEconomy().getMarket(id);
+                if (market == null || market.isPlayerOwned() || market.isPlanetConditionMarketOnly() || market.getFaction() == null) continue;
+                if (market.getFaction().isPlayerFaction() || market.getFaction().isNeutralFaction()) continue;
+                client.send(new JSONObject().put("commandId", "colonyLost").put("id", id).put("faction", market.getFactionId()).toString());
+                MultiplayerLog.log().info("We lost " + market.getName() + " to " + market.getFaction().getDisplayName());
+            }
+        }
+        ownColonyIds = ids;
     }
 
     /** A line in the campaign's message log (bottom left), for what the player should notice without the window. */

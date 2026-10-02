@@ -3,6 +3,7 @@ package matlabmaster.multiplayer.server;
 import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.CampaignFleetAPI;
 import com.fs.starfarer.api.campaign.econ.MarketAPI;
+import com.fs.starfarer.api.campaign.listeners.ColonyDecivListener;
 import com.fs.starfarer.api.campaign.rules.MemoryAPI;
 import com.fs.starfarer.api.impl.campaign.ids.MemFlags;
 import com.fs.starfarer.api.impl.campaign.intel.group.FGAction;
@@ -11,6 +12,7 @@ import com.fs.starfarer.api.util.Misc;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.updates.RaidSync;
 import matlabmaster.multiplayer.utils.ColonyMirrors;
+import matlabmaster.multiplayer.utils.PlayerFactions;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -71,7 +73,8 @@ public class ServerRaids {
             server.sendTo(clientId, ended(id, over).toString());
             return;
         }
-        raid = RaidSync.create(json);
+        String faction = server.clientFactions.get(clientId);
+        raid = RaidSync.create(json, PlayerFactions.isSlot(faction) ? faction : null);
         if (raid == null) {
             server.registry.put("raidOver:" + id, RaidSync.CANCELLED);
             server.sendTo(clientId, ended(id, RaidSync.CANCELLED).toString());
@@ -91,6 +94,50 @@ public class ServerRaids {
         MultiplayerLog.log().info(server.who(clientId) + " called off their raid " + id);
     }
 
+    /**
+     * A copy of a player's colony decivilized in the world (a saturation bombardment): their colony goes too. Heard
+     * as it happens (it leaves the economy, so the colonies watch wouldn't see it).
+     */
+    private final ColonyDecivListener decivListener = new ColonyDecivListener() {
+        @Override
+        public void reportColonyAboutToBeDecivilized(MarketAPI market, boolean fullyDestroyed) {
+            if (!ColonyMirrors.isMirror(market)) return;
+            try {
+                String owner = ColonyMirrors.ownerOf(market);
+                MultiplayerLog.log().info(market.getName() + " (" + owner + ") was destroyed in the world");
+                JSONObject hit = new JSONObject().put("market", market.getId()).put("destroyed", true).put("fullyDestroyed", fullyDestroyed);
+                tell(owner, server.clientOf(owner), new JSONObject().put("commandId", "colonyHit").put("hit", hit));
+            } catch (JSONException e) {
+                MultiplayerLog.log().error("Couldn't tell " + market.getName() + "'s owner it was destroyed", e);
+            }
+        }
+
+        @Override
+        public void reportColonyDecivilized(MarketAPI market, boolean fullyDestroyed) {
+        }
+    };
+
+    /** Hosting started (game thread). */
+    void started() {
+        if (!Global.getSector().getListenerManager().hasListener(decivListener)) {
+            Global.getSector().getListenerManager().addListener(decivListener, true); //transient: never in the save
+        }
+    }
+
+    /**
+     * Game thread: a colony the player's game no longer has, which isn't theirs any more there (taken over: the
+     * Knights of Ludd's takeover, say). The world's copy becomes that faction's market, as theirs is now.
+     */
+    void colonyLost(String clientId, String marketId, String faction) {
+        MarketAPI mirror = ColonyMirrors.find(marketId);
+        String owner = server.clientPlayers.get(clientId);
+        if (mirror == null || owner == null || !owner.equals(ColonyMirrors.ownerOf(mirror))) return;
+        if (Global.getSector().getFaction(faction) == null) return;
+        ColonyMirrors.release(mirror, faction);
+        colonies.remove(marketId);
+        MultiplayerLog.log().info(server.who(clientId) + " lost " + mirror.getName() + " to " + faction + ": it's theirs in the world too");
+    }
+
     /** Game thread, every frame (ServerScripts). */
     void advance(float amount) {
         timer += amount;
@@ -98,7 +145,7 @@ public class ServerRaids {
         timer = 0f;
         try {
             followRaids();
-            watchColonies();
+            watchColonies(true);
         } catch (Exception e) {
             MultiplayerLog.log().error("Couldn't follow the world's raids on players' colonies", e);
         }
@@ -115,7 +162,7 @@ public class ServerRaids {
                 raids().remove(id);
                 lastAction.remove(id);
                 server.registry.put("raidOver:" + id, outcome);
-                MultiplayerLog.log().info("The " + raid.getBaseName() + " on " + raid.getParams().raidParams.where.getName()
+                MultiplayerLog.log().info("The " + raid.getBaseName() + " on " + RaidSync.target(raid).getName()
                         + (outcome.equals(RaidSync.ABORTED) ? " was defeated or called off" : " is over"));
                 tell(owner, ownerClient, ended(id, outcome));
                 continue;
@@ -147,15 +194,19 @@ public class ServerRaids {
         }
     }
 
-    /** What the world did to players' colonies' copies since a second ago, for their owners. */
-    private void watchColonies() throws JSONException {
+    /**
+     * What the world did to players' colonies' copies since a second ago, for their owners. Also just before and
+     * after a player's colonies update them (ServerFactionSync), report false the second time: what changes then is
+     * the owner's (a smaller colony), not the world's doing.
+     */
+    void watchColonies(boolean report) throws JSONException {
         Set<String> seen = new HashSet<>();
         for (MarketAPI market : Global.getSector().getEconomy().getMarketsCopy()) {
             if (!ColonyMirrors.isMirror(market)) continue;
             seen.add(market.getId());
             JSONObject now = RaidSync.colonyState(market);
             JSONObject before = colonies.put(market.getId(), now);
-            if (before == null) continue; //new here: nothing to compare with
+            if (before == null || !report) continue; //new here: nothing to compare with
             JSONObject hit = RaidSync.hit(market, before, now);
             if (hit == null) continue;
             String owner = ColonyMirrors.ownerOf(market);
@@ -191,6 +242,7 @@ public class ServerRaids {
 
     /** Forgets what it saw of the last world (hosting stopped, or another game). */
     void stopped() {
+        Global.getSector().getListenerManager().removeListener(decivListener);
         lastAction.clear();
         colonies.clear();
         timer = 0f;

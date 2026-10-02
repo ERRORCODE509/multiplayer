@@ -37,6 +37,8 @@ import java.util.Set;
  */
 public class ColonyMirrors {
     private static final String OWNER = "$mp_colonyOwner";
+    /** On every mirror: rules.csv takes the military options off another player's colony (players can't fight). */
+    private static final String PLAYER_COLONY = "$mp_playerColony";
     private static final String ORIGINAL_MARKET = "$mp_originalMarket";
     private static final String ORIGINAL_FACTION = "$mp_originalFaction";
     private static final String ORIGINAL_NAME = "$mp_originalName";
@@ -115,7 +117,8 @@ public class ColonyMirrors {
                 described.add(id);
                 MarketAPI mirror = mirrors.get(id);
                 if (mirror == null) mirror = create(owner, faction, colony);
-                if (mirror != null) update(mirror, faction, colony, inEconomy);
+                //destroyed in the world (decivilized: its owner hears of it): left as it is until they drop it
+                if (mirror != null && !mirror.isPlanetConditionMarketOnly()) update(mirror, faction, colony, inEconomy);
             } catch (Exception e) {
                 MultiplayerLog.log().error("Couldn't mirror a colony of " + owner, e);
             }
@@ -138,9 +141,14 @@ public class ColonyMirrors {
         }
         MarketAPI current = planet.getMarket();
         if (current != null && !current.isPlanetConditionMarketOnly()) {
-            if (isMirror(current)) {
+            if (isMirror(current) && owner.equals(ownerOf(current))) {
                 remove(current); //another of this player's colonies here before (a new market id): replaced
                 current = planet.getMarket();
+            } else if (isMirror(current)) {
+                //another player's colony: never taken over by someone else's description (a colony they captured in
+                //their own game, which only their game would have)
+                MultiplayerLog.log().warn("Can't mirror " + colony.optString("name") + " of " + owner + ": " + planet.getName() + " is " + ownerOf(current) + "'s colony");
+                return null;
             } else {
                 //this game's own player's colony (the host's, or the same colony in a save copied from the owner's) is real here
                 if (!current.isPlayerOwned()) {
@@ -165,6 +173,7 @@ public class ColonyMirrors {
     }
 
     private static void update(MarketAPI mirror, String faction, JSONObject colony, boolean inEconomy) throws JSONException {
+        mirror.getMemoryWithoutUpdate().set(PLAYER_COLONY, true); //mirrors made before it was set have it too
         mirror.setName(colony.getString("name"));
         if (colony.has("planetName")) {
             //a mirror made before names were mirrored: its planet still has its own name
@@ -313,8 +322,30 @@ public class ColonyMirrors {
         return mirror.getMemoryWithoutUpdate().getString(OWNER);
     }
 
+    /**
+     * The world's side: the owner's game lost the colony to another faction (taken over), so the world's copy is
+     * that faction's market from now on, no longer a player's (nor a mirror: nothing puts it back or removes it).
+     */
+    public static void release(MarketAPI mirror, String faction) {
+        MemoryAPI memory = mirror.getMemoryWithoutUpdate();
+        for (String key : new String[] {OWNER, PLAYER_COLONY, ORIGINAL_MARKET, ORIGINAL_FACTION, ORIGINAL_NAME}) memory.unset(key);
+        mirror.getAccessibilityMod().unmodifyFlat(AS_OWNER);
+        mirror.getStability().unmodifyFlat(AS_OWNER);
+        mirror.getTariff().unmodifyFlat(AS_OWNER);
+        mirror.setFactionId(faction);
+        mirror.setPlayerOwned(false);
+        for (SectorEntityToken entity : mirror.getConnectedEntities()) entity.setFaction(faction);
+        for (SubmarketAPI submarket : mirror.getSubmarketsCopy()) submarket.setFaction(Global.getSector().getFaction(faction));
+    }
+
     /** Takes it out of the economy (if it's in) and puts the planet's own market, faction and name back. */
     private static void remove(MarketAPI mirror) {
+        if (mirror.isPlanetConditionMarketOnly()) {
+            //destroyed in the world: the planet keeps what's left (ruins, decivilized), just no longer anyone's
+            for (String key : new String[] {OWNER, PLAYER_COLONY, ORIGINAL_MARKET, ORIGINAL_FACTION, ORIGINAL_NAME}) mirror.getMemoryWithoutUpdate().unset(key);
+            MultiplayerLog.log().info("Removed the mirror of " + mirror.getName() + " (destroyed)");
+            return;
+        }
         if (mirror.isInEconomy()) Global.getSector().getEconomy().removeMarket(mirror);
         SectorEntityToken planet = mirror.getPrimaryEntity();
         MemoryAPI memory = mirror.getMemoryWithoutUpdate();

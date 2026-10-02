@@ -411,6 +411,10 @@ public class Server {
                         }
                     });
                     break;
+                case "colonyLost":
+                    //one of the player's colonies was taken over in their game: the world's copy goes the same way
+                    gameThreadTasks.add(() -> raids.colonyLost(clientId, json.optString("id"), json.optString("faction")));
+                    break;
                 case "raidCallOff":
                     gameThreadTasks.add(() -> raids.callOff(clientId, json.optString("id")));
                     break;

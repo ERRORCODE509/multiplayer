@@ -63,7 +63,16 @@ public class ServerFactionSync {
         String faction = server.clientFactions.get(clientId);
         if (player == null || !PlayerFactions.isSlot(faction)) return; //no faction of their own: their colonies can't be anyone's
         server.registry.setColonies(player, colonies);
-        if (!server.isLocalClient(clientId)) ColonyMirrors.apply(player, faction, colonies, true); //the world: in its economy
+        if (!server.isLocalClient(clientId)) {
+            //what the world did to their colonies' copies is told before this changes them, and what this changes isn't
+            try {
+                server.raids.watchColonies(true);
+                ColonyMirrors.apply(player, faction, colonies, true); //the world: in its economy
+                server.raids.watchColonies(false);
+            } catch (JSONException e) {
+                MultiplayerLog.log().error("Couldn't watch the colonies' copies", e);
+            }
+        }
         try {
             server.broadcastExcept(clientId, coloniesPacket(player, faction, colonies).toString());
         } catch (JSONException e) {

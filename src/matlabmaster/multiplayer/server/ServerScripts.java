@@ -172,6 +172,7 @@ public class ServerScripts implements EveryFrameScript {
         fleetSync = new FleetSync(); //the new clients know nothing yet: start the diffs from scratch
         worldWasPaused = false;
         timer = 0f;
+        serverInstance.raids.started();
         MultiplayerLog.log().info("This game is now the world for every client (" + (serverInstance.isDedicated() ? "dedicated" : "host current game") + ")");
     }
 

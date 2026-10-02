@@ -6,3 +6,6 @@ $faction.id == player",,,15:mp_tariffMenu:Set this colony's tariff,"multiplayer 
 mp_tariffMenu,DialogOptionSelected,$option == mp_tariffMenu,MP_Tariff menu,,,
 mp_tariffSet,DialogOptionSelected,MP_Tariff isOption,"MP_Tariff set
 FireAll PopulateOptions",,,
+mp_noAttackPlayerColony,PopulateOptions,"$hasMarket
+$menuState == main
+$market.mp_playerColony",RemoveOption marketConsiderHostile,,,"multiplayer mod: another player's colony can't be engaged, raided, bombarded or invaded (players don't fight each other)"
