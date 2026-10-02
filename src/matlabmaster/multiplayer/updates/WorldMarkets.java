@@ -34,6 +34,8 @@ public class WorldMarkets {
     private static final String COPY = "$mp_worldMarketCopy";
     private static final String MADE_ENTITY = "$mp_worldEntityCopy";
     private static final String ORIGINAL_MARKET = "$mp_originalMarket";
+    /** The copies made this session, by market id (found without walking the sector: see findCopy). */
+    private static final java.util.Map<String, MarketAPI> copies = new java.util.HashMap<>();
 
     /** World's side: a market, as a player's game needs it to make a copy. */
     public static JSONObject describe(MarketAPI market) throws JSONException {
@@ -138,12 +140,14 @@ public class WorldMarkets {
         market.setPrimaryEntity(entity);
         entity.setMarket(market);
         entity.setFaction(json.getString("faction"));
+        copies.put(id, market);
         MultiplayerLog.log().info("The world's " + json.getString("name") + " (" + json.getString("faction") + ") is here too" + (made ? " (with its station)" : ""));
     }
 
     /** A player's game: the world's market is gone (a base destroyed, a colony lost): so is the copy. */
     public static boolean remove(String id) {
         MarketAPI market = findCopy(id);
+        copies.remove(id);
         if (market == null) return false;
         SectorEntityToken entity = market.getPrimaryEntity();
         if (entity != null) {
@@ -159,12 +163,18 @@ public class WorldMarkets {
         return true;
     }
 
-    /** Every copy, on leaving the server or joining one (the world's, never this save's). */
+    /**
+     * Every copy, on leaving the server or loading a game (the world's, never this save's): the sector is walked for
+     * them, a save made while connected having some this session didn't make.
+     */
     public static int removeAll() {
         int removed = 0;
+        copies.clear();
         for (MarketAPI copy : allCopies()) {
+            copies.put(copy.getId(), copy);
             if (remove(copy.getId())) removed++;
         }
+        copies.clear();
         return removed;
     }
 
@@ -174,10 +184,7 @@ public class WorldMarkets {
     }
 
     public static MarketAPI findCopy(String id) {
-        for (MarketAPI copy : allCopies()) {
-            if (copy.getId().equals(id)) return copy;
-        }
-        return null;
+        return copies.get(id);
     }
 
     private static List<MarketAPI> allCopies() {
