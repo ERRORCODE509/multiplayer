@@ -111,10 +111,21 @@ Unlicense, as its developer stated (also in `LICENSE`).
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
+- [ ] **Fixes from the 2026-10-01 raid tests (`f946e9e`, untested).**
+  1. Another player's colony (e.g. the server's instance at a client's colony): "Consider your military options"
+     is greyed out with a tooltip; Trade and Esc work again (removing the option had broken that menu).
+  2. Then D: trading there from the server's instance pays the owner a tariff (the owner's own trades never do:
+     vanilla charges no tariff at your own colony).
+  3. A raid that raids your colony: your intel says "The ... are withdrawing" (not "failed"/"defeated"); the hit
+     says "(Luddic Path raid)" etc., not "(Raid)".
+  4. A raid made with a prep time (`ss_act raid` prepDays: 3) waits that long in the world before leaving.
+  5. The world's copy of your colony has your stability (`raids` targets: the same on both; it showed 10 vs 4).
+  6. The dedicated server's own fleet stays at the supplies and fuel it had, also after battles.
 - [ ] **Players' colonies can't be attacked by other players; blockades and saturation bombardments run in the world
   (`fa020c1`).** Tested OK by the user (2026-10-01): 1 (no military options), 2 (a League blockade: handed over,
   spawned, arrived, the owner was told, beaten by another player (the host) and ended as defeated in both games).
-  Left: 3, 4, and whether the colony showed "Blockaded" while blockaded (not checked).
+  Left: 3, 4, and whether the colony showed "Blockaded" while blockaded (not checked). The "not attackable" part
+  broke Trade and Esc at those colonies: fixed above.
   1. Docking at another player's colony (online or offline): no "Consider your military options" (so no engage,
      raid, bombard, or Nexerelin invade); trading still works. The same at your own is unchanged.
   2. `ss_act raid {kind: "blockade"}` in the guest (Persean League blockade of your colony's system): handed over
@@ -127,9 +138,10 @@ Unlicense, as its developer stated (also in `LICENSE`).
      the world too", and the world's market is the Church's (other players' games just drop the mirror).
   4. Saturation bombardment of a colony's world copy (hard to trigger; console on the server): the owner's colony
      loses the same size, or is destroyed (decivilized) if the world's copy was.
-- [ ] **Crisis raids run in the world (`d47eedc`, protocol 7).** Handover, spawning, being seen and being beaten by
-  another player work (tested with a blockade, same path). Left: a pirate raid's hostility to its owner
-  (intercepts), the hits on the colony (4) and the owner offline (5).
+- [ ] **Crisis raids run in the world (`d47eedc`, protocol 7).** Tested OK (2026-10-01): handover, spawning, being
+  seen, being beaten by another player (blockade and pirate raids), a Luddic Path raid's hits on the colony (-3
+  stability twice, raidsPerColony 2). Left: a pirate raid's hostility to its owner (intercepts), the owner offline
+  (5). Found and fixed above: the owner's intel told a successful raid as failed; subclasses ran as plain raids.
   Quickest: bridge `ss_act raid` in the player's game (guest) while connected, with a colony
   (`{factionId: "pirates", fleets: [3, 2], prepDays: 1}`); a real crisis raid works the same way.
   1. Guest log: "A Pirate Raid is coming for <system>: the world runs it (<id>)"; server log: "<name> handed over a
