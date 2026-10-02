@@ -21,7 +21,11 @@ import java.util.Set;
  * BountyBoard takes them out before every save and puts them back after.
  */
 public class WorldBountyIntel extends BaseIntelPlugin {
+    /** "person" (a wanted person's fleet) or "system" (hostile ships destroyed near a market). */
+    private final String kind;
     private final String person;
+    private final String marketName;
+    private final int baseBounty;
     private final String portrait;
     private final String factionId;
     private final int credits;
@@ -30,7 +34,10 @@ public class WorldBountyIntel extends BaseIntelPlugin {
     private float daysLeft;
 
     WorldBountyIntel(JSONObject bounty) {
+        kind = bounty.optString("kind", "person");
         person = bounty.optString("person", "Unknown");
+        marketName = bounty.optString("marketName", "");
+        baseBounty = bounty.optInt("baseBounty");
         portrait = bounty.optString("portrait", null);
         factionId = bounty.optString("faction");
         credits = bounty.optInt("credits");
@@ -48,22 +55,39 @@ public class WorldBountyIntel extends BaseIntelPlugin {
         return faction != null ? faction : Global.getSector().getFaction("independent");
     }
 
+    private boolean isSystem() {
+        return "system".equals(kind);
+    }
+
     @Override
     protected String getName() {
-        return "Bounty - " + person;
+        return isSystem() ? "System Bounty - " + locationName : "Bounty - " + person;
     }
 
     @Override
     protected void addBulletPoints(TooltipMakerAPI info, ListInfoMode mode, boolean isUpdate, Color tc, float initPad) {
         Color h = Misc.getHighlightColor();
         info.addPara("Posted by " + faction().getDisplayNameWithArticle(), initPad, tc, faction().getBaseUIColor(), faction().getDisplayNameWithArticle());
-        info.addPara("%s reward", 0f, tc, h, Misc.getDGSCredits(credits));
-        info.addPara("%s days left", 0f, tc, h, String.valueOf(Math.max(0, Math.round(daysLeft))));
+        if (isSystem()) {
+            info.addPara("%s base reward per frigate", 0f, tc, h, Misc.getDGSCredits(baseBounty));
+        } else {
+            info.addPara("%s reward", 0f, tc, h, Misc.getDGSCredits(credits));
+        }
+        if (!isSystem() || daysLeft > 0) info.addPara("%s days left", 0f, tc, h, String.valueOf(Math.max(0, Math.round(daysLeft))));
     }
 
     @Override
     public void createSmallDescription(TooltipMakerAPI info, float width, float height) {
         float opad = 10f;
+        if (isSystem()) {
+            info.addImage(faction().getLogo(), width, 128f, 0f);
+            info.addPara(faction().getDisplayNameWithArticle() + " pays for hostile ships destroyed near " + marketName + " in "
+                    + locationName + ": %s per frigate, more for bigger ships, for your share of the fighting.", opad,
+                    Misc.getHighlightColor(), Misc.getDGSCredits(baseBounty));
+            info.addPara("Posted in the multiplayer world: every player's battles there count.", opad, Misc.getGrayColor());
+            addBulletPoints(info, ListInfoMode.IN_DESC);
+            return;
+        }
         if (portrait != null) info.addImage(portrait, 128f, 0f);
         info.addPara(faction().getDisplayNameWithArticle() + " has posted a bounty on " + person + ", last seen in or near "
                 + locationName + ".", opad, faction().getBaseUIColor(), faction().getDisplayNameWithArticle());
@@ -76,7 +100,7 @@ public class WorldBountyIntel extends BaseIntelPlugin {
 
     @Override
     public String getIcon() {
-        return portrait != null ? portrait : faction().getCrest();
+        return portrait != null && !isSystem() ? portrait : faction().getCrest();
     }
 
     @Override

@@ -228,6 +228,11 @@ public class ClientScripts implements EveryFrameScript {
             public void reportBattleFinished(CampaignFleetAPI primaryWinner, BattleAPI battle) {
                 if (!client.isConnected() || client.isSelfHosted || battle == null || !battle.isPlayerInvolved()) return;
                 try {
+                    WorldBounties.paySystemBounties(bountyBoard.list(), primaryWinner, battle); //the world's, near here
+                } catch (Exception e) {
+                    MultiplayerLog.log().error("Couldn't pay the world's system bounties", e);
+                }
+                try {
                     JSONObject result = BattleSync.describe(battle);
                     if (result.length() == 0) return;
                     JSONObject packet = new JSONObject();

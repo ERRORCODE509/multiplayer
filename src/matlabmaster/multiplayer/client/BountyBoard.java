@@ -46,6 +46,11 @@ public class BountyBoard {
         }
     }
 
+    /** The world's last list, for paying its system bounties after a battle (WorldBounties.paySystemBounties). */
+    public JSONArray list() {
+        return last;
+    }
+
     /** Every second while connected: back after a save took them out. */
     public void keep() {
         if (last != null && shown.isEmpty() && last.length() > 0) show(last, true);
