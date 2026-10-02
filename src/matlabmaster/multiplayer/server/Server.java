@@ -421,6 +421,16 @@ public class Server {
                         }
                     });
                     break;
+                case "marketHit":
+                    //the player raided or bombarded one of the world's markets in their game: the world's takes it too
+                    gameThreadTasks.add(() -> {
+                        try {
+                            matlabmaster.multiplayer.updates.RaidSync.applyPlayerHit(who(clientId), json.getJSONObject("hit"));
+                        } catch (Exception e) {
+                            MultiplayerLog.log().error("Failed to apply what " + who(clientId) + " did to a market", e);
+                        }
+                    });
+                    break;
                 case "requestWorldMarket":
                     //a market the world has and the player's game doesn't (a new base, a new colony): its description
                     gameThreadTasks.add(() -> {

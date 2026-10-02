@@ -5,6 +5,7 @@ import com.fs.starfarer.api.campaign.SectorEntityToken;
 import com.fs.starfarer.api.campaign.econ.MarketAPI;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.updates.MarketSync;
+import matlabmaster.multiplayer.updates.RaidSync;
 import matlabmaster.multiplayer.utils.ColonyMirrors;
 import org.json.JSONObject;
 
@@ -19,6 +20,10 @@ public class ClientMarkets {
     private JSONObject before;
     /** Our own colony, while we're in a dialog there. */
     private MarketAPI ownOpen;
+    /** One of the world's markets we're at, and how it was when we got there (RaidSync.colonyState): a raid or a
+     *  bombardment of ours there goes to the world's (see dialogClosed). */
+    private MarketAPI hitMarket;
+    private JSONObject hitBefore;
 
     /*
      * Our own colonies trade like normal colonies: visitors trade at their open market (see MarketSync). This game
@@ -70,8 +75,18 @@ public class ClientMarkets {
         open = null;
         before = null;
         ownOpen = null;
+        hitMarket = null;
+        hitBefore = null;
         if (target == null) return;
         MarketAPI market = target.getMarket();
+        if (!client.isSelfHosted && market != null && !market.isPlayerOwned() && !market.isPlanetConditionMarketOnly() && !ColonyMirrors.isMirror(market)) {
+            try {
+                hitMarket = market;
+                hitBefore = RaidSync.colonyState(market);
+            } catch (Exception e) {
+                hitMarket = null;
+            }
+        }
         if (client.isSelfHosted) {
             //the host's game is the world: its markets are the real ones, except another player's colony, whose owner's
             //game holds the real stock: the host trades there as any visitor (its stock from the owner, its trades to
@@ -120,6 +135,20 @@ public class ClientMarkets {
 
     /** The dialog closed (PauseUtility): what the player bought and sold goes to the server's market. */
     public void dialogClosed(Client client) {
+        if (hitMarket != null && hitBefore != null) {
+            //raided, bombarded (the time a dialog takes doesn't pass: anything else is ours)
+            try {
+                JSONObject hit = RaidSync.hit(hitMarket, hitBefore, RaidSync.colonyState(hitMarket));
+                if (hit != null) {
+                    client.send(new JSONObject().put("commandId", "marketHit").put("hit", hit).toString());
+                    MultiplayerLog.log().info("We hit " + hitMarket.getName() + ": the world's takes it too " + hit);
+                }
+            } catch (Exception e) {
+                MultiplayerLog.log().error("Couldn't send what we did to " + hitMarket.getName(), e);
+            }
+            hitMarket = null;
+            hitBefore = null;
+        }
         if (ownOpen != null) {
             sendColonyStock(client, ownOpen, false); //as we left it: what visitors find while we're away
             ownOpen = null;

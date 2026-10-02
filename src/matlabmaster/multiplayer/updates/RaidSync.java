@@ -371,6 +371,7 @@ public class RaidSync {
         state.put("pollution", mirror.hasCondition(Conditions.POLLUTION));
         state.put("size", mirror.getSize());
         state.put("bombarded", mirror.getMemoryWithoutUpdate().contains(MemFlags.RECENTLY_BOMBARDED));
+        state.put("destroyed", mirror.isPlanetConditionMarketOnly());
         return state;
     }
 
@@ -398,6 +399,7 @@ public class RaidSync {
         if (now.getBoolean("pollution") && !before.getBoolean("pollution")) hit.put("pollution", true);
         int sizeLoss = before.optInt("size", 0) - now.optInt("size", 0);
         if (sizeLoss > 0 && now.optBoolean("bombarded")) hit.put("sizeLoss", sizeLoss);
+        if (now.optBoolean("destroyed") && !before.optBoolean("destroyed")) hit.put("destroyed", true);
         if (hit.length() == 0) return null;
         hit.put("market", mirror.getId());
         return hit;
@@ -426,9 +428,24 @@ public class RaidSync {
             MultiplayerLog.log().warn("The world hit colony " + hit.getString("market") + ", which isn't ours any more");
             return;
         }
+        apply(market, hit, "The world's raid hit ");
+    }
+
+    /**
+     * World's side: a player raided or bombarded one of the world's markets in their game (ClientMarkets measured it
+     * across the dialog): the same on the world's market, so it's raided for everyone (its new size reaches the
+     * others through WorldOwnership).
+     */
+    public static void applyPlayerHit(String who, JSONObject hit) throws JSONException {
+        MarketAPI market = Global.getSector().getEconomy().getMarket(hit.getString("market"));
+        if (market == null || market.isPlayerOwned() || ColonyMirrors.isMirror(market)) return; //players' colonies can't be attacked
+        apply(market, hit, who + " hit ");
+    }
+
+    private static void apply(MarketAPI market, JSONObject hit, String logPrefix) throws JSONException {
         if (hit.optBoolean("destroyed")) {
-            //saturation bombarded to nothing in the world (its copy decivilized): the colony is gone, as it'd be here
-            MultiplayerLog.log().info("The world destroyed " + market.getName() + " (saturation bombardment)");
+            //saturation bombarded to nothing in the other game: gone here too
+            MultiplayerLog.log().info(logPrefix + market.getName() + ": destroyed (saturation bombardment)");
             DecivTracker.decivilize(market, hit.optBoolean("fullyDestroyed", true));
             return;
         }
@@ -456,6 +473,6 @@ public class RaidSync {
         int sizeLoss = hit.optInt("sizeLoss", 0);
         for (int i = 0; i < sizeLoss; i++) CoreImmigrationPluginImpl.reduceMarketSize(market); //as a saturation bombardment
         if (sizeLoss > 0) what.append(", size -").append(sizeLoss);
-        MultiplayerLog.log().info("The world's raid hit " + market.getName() + ":" + what);
+        MultiplayerLog.log().info(logPrefix + market.getName() + ":" + what);
     }
 }
