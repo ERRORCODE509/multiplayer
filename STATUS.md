@@ -111,7 +111,7 @@ Unlicense, as its developer stated (also in `LICENSE`).
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
-- [ ] **Fixes from the 2026-10-01 raid tests (`f946e9e`, `03f5406`, untested).**
+- [ ] **Fixes from the 2026-10-01 raid tests (`f946e9e`, `f041d45`, untested; `f041d45` is titled "STATUS.md: ..." but also holds the code: dedicated server visitor trades, ending raids finish).**
   1. Another player's colony (e.g. the server's instance at a client's colony): "Consider your military options"
      is greyed out with a tooltip; Trade and Esc work again (removing the option had broken that menu).
   2. Then D: trading there from the server's instance pays the owner a tariff (the owner's own trades never do:
