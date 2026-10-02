@@ -115,6 +115,8 @@ public class Server {
     public final ServerDebris debris = new ServerDebris(this);
     /** The raids on players' colonies the world runs for them, and what it does to their colonies (game thread). */
     public final ServerRaids raids = new ServerRaids(this);
+    /** The world's salvageable things: what's where, and what players salvaged (game thread). */
+    public final ServerEntities entities = new ServerEntities(this);
     /** Connected players this game has no copy of the fleet of (game thread only), so it's only logged once. */
     private final Set<String> missingPlayerFleets = new HashSet<>();
     /** The host's game version, seed and mods, sent in every welcome so joiners can check they match. */
@@ -411,6 +413,10 @@ public class Server {
                         }
                     });
                     break;
+                case "entityGone":
+                    //the player salvaged one of the world's things: gone from the world and everyone's game
+                    gameThreadTasks.add(() -> entities.gone(clientId, json.optString("id")));
+                    break;
                 case "colonyLost":
                     //one of the player's colonies was taken over in their game: the world's copy goes the same way
                     gameThreadTasks.add(() -> raids.colonyLost(clientId, json.optString("id"), json.optString("faction")));
@@ -478,6 +484,7 @@ public class Server {
         broadcastExcept(clientId, joined.toString());
         markets.deliverQueuedTrades(clientId, playerId); //visitors' trades at their colonies while they were away
         raids.joined(clientId, playerId); //how the world's raids on their colonies went while they were away
+        entities.joined(clientId); //what was salvaged in the world so far
     }
 
     /** Who's connected, in this game's multiplayer window (null once it stops hosting). */

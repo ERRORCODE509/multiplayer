@@ -13,6 +13,7 @@ import com.fs.starfarer.campaign.Faction;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.updates.BattleSync;
 import matlabmaster.multiplayer.updates.DebrisSync;
+import matlabmaster.multiplayer.updates.EntitySync;
 import matlabmaster.multiplayer.updates.FleetSync;
 import matlabmaster.multiplayer.updates.WorldSync;
 import matlabmaster.multiplayer.utils.*;
@@ -44,6 +45,8 @@ public class ClientScripts implements EveryFrameScript {
     private final InteractionOrbit interactionOrbit = new InteractionOrbit();
     /** The raids on our colonies, which the world runs (see RaidSync). */
     private final OwnRaids ownRaids = new OwnRaids();
+    /** The world's salvageable things: what's gone from the world goes here, what we salvage goes there. */
+    private final WorldEntities worldEntities = new WorldEntities();
     /** Our reputation and faction as last sent to the server (null: not since joining), see sendOwnFaction. */
     private String factionSent = null;
     /** The battle debris fields the server knows of (ours sent, or others' received), see syncDebris. */
@@ -115,6 +118,7 @@ public class ClientScripts implements EveryFrameScript {
             CopyAI.removeAll();
             FleetFlags.ownFaction = null;
             ownRaids.reset();
+            worldEntities.reset();
             if (client != null && client.wasPaused) { //left in a dialog: never told the server, nobody to tell now
                 client.wasPaused = false;
                 PauseUtility.clearPausedName();
@@ -134,6 +138,7 @@ public class ClientScripts implements EveryFrameScript {
             debrisKnown.clear();
             CopyAI.removeAll();
             ownRaids.reset();
+            worldEntities.reset();
         }
         factionTimer += amount;
         if (factionSent == null || factionTimer >= PlayerFactions.RELATIONS_INTERVAL) {
@@ -201,6 +206,7 @@ public class ClientScripts implements EveryFrameScript {
         sectorScriptsUtility.forgetScripts();
         interactionOrbit.forget();
         ownRaids.reset();
+        worldEntities.reset();
         ownColonyIds = null; //another game's colonies
         PauseUtility.clearPausedName(); //a save from before this was fixed may have it
         PositionSmoothing.clear();
@@ -321,6 +327,15 @@ public class ClientScripts implements EveryFrameScript {
                     MultiplayerLog.log().info("The world has " + ids.size() + " battle debris fields" + (removed > 0 ? "; removed " + removed + " gone since we were last here" : ""));
                     break;
                 }
+                case "worldEntities":
+                    if (!client.isSelfHosted) worldEntities.listed(client, message.getString("location"), message.getJSONArray("ids"));
+                    break;
+                case "worldEntityGone":
+                    if (!client.isSelfHosted) worldEntities.gone(java.util.Collections.singletonList(message.getString("id")));
+                    break;
+                case "worldEntitiesGone":
+                    if (!client.isSelfHosted) worldEntities.gone(EntitySync.fromJson(message.getJSONArray("ids")));
+                    break;
                 case "colonyHit":
                 case "raidAction":
                 case "raidEnded":
