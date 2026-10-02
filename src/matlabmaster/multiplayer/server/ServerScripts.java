@@ -114,6 +114,7 @@ public class ServerScripts implements EveryFrameScript {
         serverInstance.debris.advance(amount);
         serverInstance.raids.advance(amount);
         serverInstance.entities.advance(amount);
+        serverInstance.ownership.advance(amount);
 
         boolean paused = Global.getSector().isPaused();
         if (serverInstance.isDedicated()) {
@@ -191,6 +192,7 @@ public class ServerScripts implements EveryFrameScript {
         serverInstance.debris.stopped();
         serverInstance.raids.stopped();
         serverInstance.entities.stopped();
+        serverInstance.ownership.stopped();
         heldAt.clear();
         orbiting.clear(); //the players' fleets themselves are removed just below
         pinnedAt.clear();

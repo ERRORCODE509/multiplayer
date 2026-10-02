@@ -14,6 +14,7 @@ import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.updates.BattleSync;
 import matlabmaster.multiplayer.updates.DebrisSync;
 import matlabmaster.multiplayer.updates.EntitySync;
+import matlabmaster.multiplayer.updates.WorldOwnership;
 import matlabmaster.multiplayer.updates.FleetSync;
 import matlabmaster.multiplayer.updates.WorldSync;
 import matlabmaster.multiplayer.utils.*;
@@ -119,6 +120,7 @@ public class ClientScripts implements EveryFrameScript {
             FleetFlags.ownFaction = null;
             ownRaids.reset();
             worldEntities.reset();
+            WorldOwnership.reset();
             if (client != null && client.wasPaused) { //left in a dialog: never told the server, nobody to tell now
                 client.wasPaused = false;
                 PauseUtility.clearPausedName();
@@ -327,6 +329,10 @@ public class ClientScripts implements EveryFrameScript {
                     MultiplayerLog.log().info("The world has " + ids.size() + " battle debris fields" + (removed > 0 ? "; removed " + removed + " gone since we were last here" : ""));
                     break;
                 }
+                case "worldOwnership":
+                    //who owns the world's markets and objectives (all of them on joining, then what changed)
+                    if (!client.isSelfHosted) WorldOwnership.apply(message.getJSONObject("state"));
+                    break;
                 case "worldEntities":
                     if (!client.isSelfHosted) worldEntities.listed(client, message.getString("location"), message.getJSONArray("ids"));
                     break;
