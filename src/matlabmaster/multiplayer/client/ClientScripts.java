@@ -15,6 +15,7 @@ import matlabmaster.multiplayer.updates.BattleSync;
 import matlabmaster.multiplayer.updates.DebrisSync;
 import matlabmaster.multiplayer.updates.EntitySync;
 import matlabmaster.multiplayer.updates.WorldBounties;
+import matlabmaster.multiplayer.updates.WorldMarkets;
 import matlabmaster.multiplayer.updates.WorldOwnership;
 import matlabmaster.multiplayer.updates.FleetSync;
 import matlabmaster.multiplayer.updates.WorldSync;
@@ -51,6 +52,8 @@ public class ClientScripts implements EveryFrameScript {
     private final WorldEntities worldEntities = new WorldEntities();
     /** The world's open bounties, in our intel tab while connected. */
     private final BountyBoard bountyBoard = new BountyBoard();
+    /** Whether this session made copies of the world's markets (WorldMarkets), to remove on leaving. */
+    private boolean worldMarketCopies = false;
     /** Our reputation and faction as last sent to the server (null: not since joining), see sendOwnFaction. */
     private String factionSent = null;
     /** The battle debris fields the server knows of (ours sent, or others' received), see syncDebris. */
@@ -125,6 +128,11 @@ public class ClientScripts implements EveryFrameScript {
             worldEntities.reset();
             WorldOwnership.reset();
             bountyBoard.reset();
+            if (worldMarketCopies) {
+                int copies = WorldMarkets.removeAll(); //the world's, not this save's
+                if (copies > 0) MultiplayerLog.log().info("Removed the copies of " + copies + " of the world's markets");
+                worldMarketCopies = false;
+            }
             if (client != null && client.wasPaused) { //left in a dialog: never told the server, nobody to tell now
                 client.wasPaused = false;
                 PauseUtility.clearPausedName();
@@ -216,6 +224,10 @@ public class ClientScripts implements EveryFrameScript {
         ownRaids.reset();
         worldEntities.reset();
         bountyBoard.forget();
+        WorldOwnership.reset();
+        //a save made during a session has the copies of the world's markets: the next session makes them again
+        int marketCopies = WorldMarkets.removeAll();
+        if (marketCopies > 0) MultiplayerLog.log().info("Removed " + marketCopies + " copies of the world's markets saved with this game");
         ownColonyIds = null; //another game's colonies
         PauseUtility.clearPausedName(); //a save from before this was fixed may have it
         PositionSmoothing.clear();
@@ -350,7 +362,18 @@ public class ClientScripts implements EveryFrameScript {
                     break;
                 case "worldOwnership":
                     //who owns the world's markets and objectives (all of them on joining, then what changed)
-                    if (!client.isSelfHosted) WorldOwnership.apply(message.getJSONObject("state"));
+                    if (!client.isSelfHosted) {
+                        for (String id : WorldOwnership.apply(message.getJSONObject("state"))) {
+                            client.send(new JSONObject().put("commandId", "requestWorldMarket").put("id", id).toString());
+                        }
+                    }
+                    break;
+                case "worldMarket":
+                    //a market the world founded that this game doesn't have: a copy, while connected
+                    if (!client.isSelfHosted) {
+                        WorldMarkets.create(message.getJSONObject("market"));
+                        worldMarketCopies = true;
+                    }
                     break;
                 case "worldEntities":
                     if (!client.isSelfHosted) worldEntities.listed(client, message.getString("location"), message.getJSONArray("ids"));

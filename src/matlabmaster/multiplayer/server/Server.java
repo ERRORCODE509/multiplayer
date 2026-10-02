@@ -421,6 +421,19 @@ public class Server {
                         }
                     });
                     break;
+                case "requestWorldMarket":
+                    //a market the world has and the player's game doesn't (a new base, a new colony): its description
+                    gameThreadTasks.add(() -> {
+                        try {
+                            com.fs.starfarer.api.campaign.econ.MarketAPI market = Global.getSector().getEconomy().getMarket(json.optString("id"));
+                            if (market == null || matlabmaster.multiplayer.utils.ColonyMirrors.isMirror(market)) return;
+                            JSONObject description = matlabmaster.multiplayer.updates.WorldMarkets.describe(market);
+                            if (description != null) sendTo(clientId, new JSONObject().put("commandId", "worldMarket").put("market", description).toString());
+                        } catch (Exception e) {
+                            MultiplayerLog.log().error("Couldn't describe market " + json.optString("id") + " to " + who(clientId), e);
+                        }
+                    });
+                    break;
                 case "entityGone":
                     //the player salvaged one of the world's things: gone from the world and everyone's game
                     gameThreadTasks.add(() -> entities.gone(clientId, json.optString("id")));

@@ -11,11 +11,14 @@ import com.fs.starfarer.api.impl.campaign.ids.Tags;
 import com.fs.starfarer.api.impl.campaign.population.CoreImmigrationPluginImpl;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.utils.ColonyMirrors;
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -25,10 +28,12 @@ import java.util.Set;
  * owners and sizes. Players' colonies aren't in it (ColonyMirrors), nor the server game's own player's ("player":
  * the host's colonies reach the others as a player's).
  *
- * State: {"markets": {marketId: {"faction", "size"}}, "objectives": {entityId: factionId}}.
+ * State: {"markets": {marketId: {"faction", "size"}}, "objectives": {entityId: factionId}, "removedMarkets": [id]
+ * (changes only: markets the world no longer has)}. A market the world has that this game doesn't is asked for
+ * (WorldMarkets makes a copy of it).
  */
 public class WorldOwnership {
-    /** Markets the world has that this game doesn't (founded there: a new pirate base...): logged once each. */
+    /** Markets the world has that this game doesn't (founded there: a new pirate base...): asked for once each. */
     private static final Set<String> unknown = new HashSet<>();
 
     /** World's side: who owns every market and objective now. */
@@ -52,8 +57,13 @@ public class WorldOwnership {
         if (before == null) return now;
         JSONObject markets = changed(before.getJSONObject("markets"), now.getJSONObject("markets"));
         JSONObject objectives = changed(before.getJSONObject("objectives"), now.getJSONObject("objectives"));
-        if (markets.length() == 0 && objectives.length() == 0) return null;
-        return new JSONObject().put("markets", markets).put("objectives", objectives);
+        JSONArray removed = new JSONArray();
+        for (Iterator<?> it = before.getJSONObject("markets").keys(); it.hasNext(); ) {
+            String id = (String) it.next();
+            if (!now.getJSONObject("markets").has(id)) removed.put(id);
+        }
+        if (markets.length() == 0 && objectives.length() == 0 && removed.length() == 0) return null;
+        return new JSONObject().put("markets", markets).put("objectives", objectives).put("removedMarkets", removed);
     }
 
     private static JSONObject changed(JSONObject before, JSONObject now) throws JSONException {
@@ -67,14 +77,29 @@ public class WorldOwnership {
         return changed;
     }
 
-    /** A client: the world's owners (all of them on joining, then what changed), on this game's markets and objectives. */
-    public static void apply(JSONObject state) throws JSONException {
+    /**
+     * A client: the world's owners (all of them on joining, then what changed), on this game's markets and
+     * objectives. Returns the markets the world has and this game doesn't, not asked for yet (to ask the server).
+     */
+    public static List<String> apply(JSONObject state) throws JSONException {
         int changedMarkets = 0, changedObjectives = 0;
+        List<String> missing = new ArrayList<>();
         JSONObject markets = state.optJSONObject("markets");
         if (markets != null) {
             for (Iterator<?> it = markets.keys(); it.hasNext(); ) {
                 String id = (String) it.next();
+                if (!WorldMarkets.has(id)) {
+                    if (unknown.add(id)) missing.add(id);
+                    continue;
+                }
                 if (applyMarket(id, markets.getJSONObject(id))) changedMarkets++;
+            }
+        }
+        JSONArray removed = state.optJSONArray("removedMarkets");
+        if (removed != null) {
+            for (int i = 0; i < removed.length(); i++) {
+                unknown.remove(removed.getString(i));
+                WorldMarkets.remove(removed.getString(i)); //only a copy of ours: this save's own markets are its own
             }
         }
         JSONObject objectives = state.optJSONObject("objectives");
@@ -92,14 +117,13 @@ public class WorldOwnership {
         if (changedMarkets > 0 || changedObjectives > 0) {
             MultiplayerLog.log().info("The world's owners: " + changedMarkets + " markets and " + changedObjectives + " objectives changed here");
         }
+        return missing;
     }
 
     private static boolean applyMarket(String id, JSONObject wanted) throws JSONException {
         MarketAPI market = Global.getSector().getEconomy().getMarket(id);
-        if (market == null) {
-            if (unknown.add(id)) MultiplayerLog.log().info("The world has a market this game doesn't: " + id + " (" + wanted.optString("faction") + ")");
-            return false;
-        }
+        if (market == null) market = WorldMarkets.findCopy(id);
+        if (market == null) return false;
         if (market.isPlayerOwned() || ColonyMirrors.isMirror(market)) return false; //ours, or a player's: theirs to say
         boolean changed = false;
         String faction = wanted.getString("faction");
