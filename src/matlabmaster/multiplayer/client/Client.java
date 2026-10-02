@@ -140,7 +140,8 @@ public class Client {
                 //prepare for all fleet syncing
                 MultiplayerLog.log().warn("Joining replaces every AI fleet in this game with the host's. Play multiplayer on a copy of your save, not your main one.");
                 MultiplayerLog.log().info("DESTROYING EXISTING FLEETS");
-                FleetHelper.killAllFleetsExceptPlayer();
+                int missionFleets = FleetHelper.killAllFleetsExceptPlayer();
+                if (missionFleets > 0) MultiplayerLog.log().info("Kept " + missionFleets + " fleets this game's missions need (only in this game)");
 
                 //ask for all the sectors fleet snapshot
                 MultiplayerLog.log().info("REQUESTING FLEETS SNAPSHOT");

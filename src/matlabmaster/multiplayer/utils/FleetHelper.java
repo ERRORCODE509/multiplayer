@@ -4,6 +4,7 @@ import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.CampaignFleetAPI;
 import com.fs.starfarer.api.campaign.LocationAPI;
 import com.fs.starfarer.api.campaign.SectorEntityToken;
+import com.fs.starfarer.api.impl.campaign.ids.MemFlags;
 import org.json.JSONArray;
 import org.json.JSONException;
 
@@ -11,16 +12,26 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class FleetHelper {
-    public static void killAllFleetsExceptPlayer() {
+    /**
+     * On joining: this save's own AI fleets go, the world's take their place. Not the ones a mission of this
+     * player's needs (vanilla marks them $missionImportant: a target, a contact's fleet): those are only in this
+     * game, the world has no copy of them, and the mission would be lost for good. Returns how many were kept.
+     */
+    public static int killAllFleetsExceptPlayer() {
+        int kept = 0;
         for (LocationAPI location : Global.getSector().getAllLocations()) {
             // Create a copy of the fleet list to avoid ConcurrentModificationException
             List<CampaignFleetAPI> fleetsCopy = new ArrayList<>(location.getFleets()); //needs a copy to avoid comodification exceptions
             for (CampaignFleetAPI fleet : fleetsCopy) {
-                if (!fleet.isPlayerFleet() && !fleet.isStationMode()) {
-                    fleet.despawn();
+                if (fleet.isPlayerFleet() || fleet.isStationMode()) continue;
+                if (fleet.getMemoryWithoutUpdate().getBoolean(MemFlags.ENTITY_MISSION_IMPORTANT)) {
+                    kept++;
+                    continue;
                 }
+                fleet.despawn();
             }
         }
+        return kept;
     }
     public static JSONArray getFleetsSnapshot() throws JSONException {
         return getFleetsSnapshot(true);
