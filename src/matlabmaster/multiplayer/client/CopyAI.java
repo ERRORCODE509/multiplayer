@@ -16,6 +16,7 @@ import com.fs.starfarer.api.fleet.FleetMemberAPI;
 import com.fs.starfarer.campaign.ai.ModularFleetAI;
 import com.fs.starfarer.campaign.fleet.CampaignFleet;
 import matlabmaster.multiplayer.MultiplayerLog;
+import matlabmaster.multiplayer.utils.FleetSerializer;
 
 import java.util.Collections;
 import java.util.List;
@@ -37,9 +38,13 @@ public class CopyAI implements CampaignFleetAIAPI {
         this.vanilla = vanilla;
     }
 
-    /** One of the world's NPC fleets here (not a player's, not a station: those are this game's own). */
+    /**
+     * One of the world's NPC fleets here (not a player's, not a station: those are this game's own). Never a fleet
+     * of this game's own (a mission's, a bar event's): those run here, with their own AI, or they'd stand still.
+     */
     public static void install(CampaignFleetAPI fleet) {
         if (fleet == null || fleet.isPlayerFleet() || fleet.hasTag("playerFleet") || fleet.isStationMode()) return;
+        if (!fleet.hasTag(FleetSerializer.WORLD_COPY)) return;
         if (fleet.getAI() instanceof CopyAI || !(fleet instanceof CampaignFleet)) return;
         try {
             CampaignFleetAIAPI vanilla = fleet.getAI() != null ? fleet.getAI() : new ModularFleetAI((CampaignFleet) fleet);

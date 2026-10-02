@@ -21,6 +21,8 @@ import org.json.JSONObject;
 import java.util.*;
 
 public class FleetSerializer {
+    /** On a client's copies of the world's NPC fleets, unlike its own (a mission's): only those get a CopyAI. */
+    public static final String WORLD_COPY = "mp_worldFleetCopy";
 
     /**
      * Applies a JSON Diff to a live CampaignFleetAPI.
@@ -392,6 +394,8 @@ public class FleetSerializer {
         if(serializedFleet.getBoolean("isPlayerFleet")){
             fleet.addTag("playerFleet");
             PlayerEncounters.keepOutOfBattles(fleet); //players don't fight each other
+        } else {
+            fleet.addTag(WORLD_COPY); //a copy of one of the world's NPC fleets (see CopyAI)
         }
 
         if(Objects.equals(serializedFleet.getString("location"), "hyperspace")){
