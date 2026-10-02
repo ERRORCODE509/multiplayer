@@ -61,8 +61,8 @@ Unlicense, as its developer stated (also in `LICENSE`).
   ({locationId?}: orbit angles), `screen`, `raids` (every FleetGroupIntel: `world:<id>` / `handed:<id>`, action,
   fleets, targets' stability/unrest/disruption). Actions: `pause` (connected games unpause themselves), `teleport`,
   `give`, `addship`, `setcr`, `ability`, `rep` ({factionId, value}), `mark` ({text} -> "[AGENT MARK]" in the log),
-  `memory`, `raid` ({factionId = pirates, marketId?, sourceId?, fleets = [3, 2], prepDays = 1, payloadDays = 20}:
-  a crisis-like raid on the player's colony). Works in-game (status, fleets, entities, ss_diff checked). `entities` skips asteroids: they're never
+  `memory`, `raid` ({kind = raid|blockade|takeover, factionId?, marketId?, sourceId?, fleets?, prepDays = 1,
+  payloadDays = 20}: a crisis-like raid, League blockade or Knights takeover of the player's colony). Works in-game (status, fleets, entities, ss_diff checked). `entities` skips asteroids: they're never
   synced (each game's belts and fields make their own, with their own ids).
 - Fleet ids are the same in every game of a session, so `ss_diff(what: "fleets", args: {near: 3000, around:
   "<client id>"})` compares the server's and a client's view around the client's fleet (the server has every fleet,
@@ -97,6 +97,13 @@ Unlicense, as its developer stated (also in `LICENSE`).
   (intel updates), `raidEnded` (aborted -> the owner's raid aborts, so the crisis counts it as beaten; finished;
   cancelled) and `colonyHit` (unrest, disruption, pollution the world's copies of colonies took, from any raid);
   queued in the registry while the owner is offline. The owner's crisis ending it sends `raidCallOff`.
+  Blockades too: the world runs `updates/WorldBlockades` (vanilla's, minus the check for the host's own crisis);
+  the owner's game puts the League's "Blockaded" condition on while the world blockades, and the Knights' unrest
+  and takeover stay in the owner's game (vanilla's listener on its frozen copy; removed from the world's). A
+  colony lost to another faction sends `colonyLost` (the world's copy becomes theirs, `ColonyMirrors.release`); a
+  world copy decivilized (saturation bombardment) tells the owner through a `ColonyDecivListener`.
+- Players' colonies: `rules.csv` `mp_noAttackPlayerColony` removes "Consider your military options" at a mirror
+  (`$mp_playerColony`); `ColonyMirrors.create` never replaces another player's mirror.
   `utils/FleetFlags`: NPC fleets carry their `$cfai_makeHostile_<faction>` and rep-impact flags to the copies
   (made hostile to your faction = hostile to you); the raid's plain `$cfai_makeHostile` (the host) is cleared.
 - Agent (`-javaagent`, added by the launcher): `NearestPlayer` (fleet spawning around every player),
@@ -104,6 +111,20 @@ Unlicense, as its developer stated (also in `LICENSE`).
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
+- [ ] **Players' colonies can't be attacked by other players; blockades and saturation bombardments run in the world
+  (`fa020c1`, untested).** Rebuild both jars, restart both games.
+  1. Docking at another player's colony (online or offline): no "Consider your military options" (so no engage,
+     raid, bombard, or Nexerelin invade); trading still works. The same at your own is unchanged.
+  2. `ss_act raid {kind: "blockade"}` in the guest (Persean League blockade of your colony's system): handed over
+     as a raid is; the League fleets (armada, two supply fleets) appear in the world; once blockading, your colony
+     shows "Blockaded" (accessibility down, `ss_dump raids` "blockaded"); beating the armada or both supply fleets
+     (any player) ends it as defeated.
+  3. `ss_act raid {kind: "takeover"}` on a colony with a Luddic majority: the Knights blockade it in the world; each
+     month while blockading your colony takes the takeover unrest (your game's vanilla code, not twice); at 0
+     stability it's the Church's: your log "We lost <colony> to the Luddic Church", server log "... it's theirs in
+     the world too", and the world's market is the Church's (other players' games just drop the mirror).
+  4. Saturation bombardment of a colony's world copy (hard to trigger; console on the server): the owner's colony
+     loses the same size, or is destroyed (decivilized) if the world's copy was.
 - [ ] **Crisis raids run in the world (`d47eedc`, protocol 7, untested).** Rebuild both jars, restart both games.
   Quickest: bridge `ss_act raid` in the player's game (guest) while connected, with a colony
   (`{factionId: "pirates", fleets: [3, 2], prepDays: 1}`); a real crisis raid works the same way.
@@ -120,7 +141,6 @@ Unlicense, as its developer stated (also in `LICENSE`).
      log "The world's raid hit <colony>: -N stability (Pirate raid)..." and the colony screen shows the unrest
      (and any disruption).
   5. Owner offline meanwhile: the news (hits, how it ended) arrives when they join again.
-  Not handed over: blockades (Persean League, Knights of Ludd takeover), which still wait while connected.
 Tested by the user on 2026-10-01: smoothing (good now), players list, no PvP, [PAUSED] (probably), jump flash (players
 only), hosting/tariff, setting the tariff, left alone in dialogs, orbit after a dialog (not while sped up), rename,
 jumping between locations, construction catch-up, reputation sound (mostly: sometimes doesn't play).
@@ -197,11 +217,13 @@ mirrors (name, accessibility, stability), markets, full-rate locations (smooth f
 hyperspace gravity wells, factions shown in the intel tab only while connected.
 
 ## Known limits / ideas (not started)
-- Crisis blockades (Persean League blockade, Knights of Ludd takeover) still wait while their owner is connected:
-  they change the colony (accessibility, its owner) in ways the world's copy can't pass on yet. Raids and punitive
-  expeditions run in the world (see Architecture). Limits there: a saturation bombardment's size loss isn't
-  passed on (only unrest, disruption, pollution); a raid whose source market isn't in the world starts from the
-  faction's nearest one; the world tracks hits on colonies only while it's hosting.
+- Crisis raids in the world (see Architecture), limits: a raid whose source market isn't in the world starts from
+  the faction's nearest one; the world tracks hits on colonies only while it's hosting; blockade fleets don't
+  hassle players (vanilla aims that at the server game's own player); a colony taken over (Knights) is only the
+  world's and the owner's: the other players' games just stop showing it.
+- Players' colonies: other players can't attack them at all (online or not), since players can't fight each other;
+  capture while the owner is online would need the PvP design too. Not covered: Nexerelin's remote invasions
+  launched from a player's own intel screen (no dialog).
 - Visitors' prices at a player's colony come from their own game's copy (out of its economy): may differ.
 - Salvage loot isn't shared, and a later battle adding to an existing field doesn't update the others' copies.
 - Clock: a client stays up to 5 game minutes (the dead band) behind the server, plus the network delay.
