@@ -120,7 +120,7 @@ Unlicense, as its developer stated (also in `LICENSE`).
 
 ## Needs testing (latest first)
 - [ ] **More of the world shared (protocol 8: `9c18451`, `254fc36`, `1b59692`, `5c19c53`, `ab4fc94`, `b3beae8`,
-  untested).** Rebuild done; restart both games (both need the new jar).
+  untested; also `f9952a2`, `a9a7dea`, `1257987`, `60be6c7`).** Rebuild done; restart both games (both need the new jar).
   1. Salvage: salvage something in the world (a derelict ship, a cache, a probe) from your game: your log "Salvaged
      <name>: the world hears of it", server log "<name> salvaged <name>: gone from the world"; it's gone from the
      server's instance and any other player's game. Salvaged from the server's instance: gone from yours within a
@@ -135,7 +135,13 @@ Unlicense, as its developer stated (also in `LICENSE`).
      market: "System bounty at <market>: N credits received".
   4. World markets: a pirate base (or a Nexerelin colony) the world founded appears in your game (log "The world's
      <name> (pirates) is here too (with its station)"), hidden until discovered like any base; trading there uses
-     the world's stock; destroyed in the world, it's gone from your game; gone from your game after leaving.
+     the world's stock; destroyed in the world, it's gone from your game; gone from your game after leaving. On
+     joining, the log lists the markets your save has that the world doesn't.
+  5. Debris (`a9a7dea`): a field from another player's battle holds that battle's salvage (not a small default) and
+     its ships to recover; a second battle on the same field, or ships recovered from it, reach the others' copies.
+  6. Your game's own fleets (`1257987`, `60be6c7`): a mission's fleet (a bar event's target, a contact's) moves and
+     acts normally while connected (it froze before); joining keeps the fleets your missions need (log "Kept N
+     fleets this game's missions need") instead of removing them with the rest.
 - [ ] **Fixes from the 2026-10-01 raid tests (`f946e9e`, `f041d45`, untested; `f041d45` is titled "STATUS.md: ..." but also holds the code: dedicated server visitor trades, ending raids finish).**
   1. Another player's colony (e.g. the server's instance at a client's colony): "Consider your military options"
      is greyed out with a tooltip; Trade and Esc work again (removing the option had broken that menu).
@@ -275,5 +281,11 @@ hyperspace gravity wells, factions shown in the intel tab only while connected.
   world's game wasn't hosting, or a player's own offline salvage, isn't shared (only what happens while connected).
 - A player's save may have markets the world doesn't (their own single-player pirate bases...): they stay, and
   trading there stays in that game. NPC markets' conditions and industries aren't synced (only owners and sizes).
+- Hyperspace slipstreams aren't synced (vanilla regenerates them at random twice a cycle and doesn't expose their
+  shape): a player's stay as they were on joining, the world's change. Only the world's fleets look off on them.
+- Old-style threats to players' colonies (punitive expeditions over trade, Hegemony AI inspections, pirate base
+  raids: vanilla's RaidIntel, not the crises' FleetGroupIntel) don't start while the owner is connected (their
+  managers are the world's, which only target its own player); they happen in single player as before.
+- Fleets a player's own game makes (missions, bar events) are only in their game: the others don't see them.
 - Clock: a client stays up to 5 game minutes (the dead band) behind the server, plus the network delay.
 - Players are always neutral to each other and can't fight (PlayerEncounters): PvP would need a real design.
