@@ -122,15 +122,24 @@ public class OwnRaids {
         timer = 0f;
     }
 
-    /** The world's raid moved on to another action: the ones before it are done here too (with their intel updates). */
-    public static void action(String id, String actionId) {
+    /**
+     * The world's raid moved on to another action: the ones before it are done here too (with their intel updates),
+     * its raiding as the world's went (payload: RaidSync.payloadState), so "withdrawing" isn't told as a failure.
+     */
+    public static void action(String id, String actionId, JSONObject payload) {
         GenericRaidFGI raid = handed().get(id);
         if (raid == null || raid.isEnding() || raid.isEnded() || raid.getAction(actionId) == null) return;
+        boolean asWorld = RaidSync.applyPayloadState(raid, payload);
         while (!raid.getActions().isEmpty() && raid.getCurrentAction() != raid.getAction(actionId)) {
             FGAction done = raid.getActions().remove(0);
             done.setActionFinished(true);
             if (GenericRaidFGI.PREPARE_ACTION.equals(done.getId())) {
                 raid.sendUpdateIfPlayerHasIntel(FleetGroupIntel.FLEET_LAUNCH_UPDATE, false);
+            } else if (GenericRaidFGI.PAYLOAD_ACTION.equals(done.getId()) && !asWorld) {
+                //it raided in the world but this one can't count it (a bombardment): not vanilla's "failed"
+                if (Global.getSector().getCampaignUI() != null) {
+                    Global.getSector().getCampaignUI().addMessage("The " + raid.getForcesNoun() + " of the " + raid.getBaseName() + " are withdrawing");
+                }
             } else if (done.getId() != null && !(done instanceof FGWaitAction)) {
                 raid.sendUpdateIfPlayerHasIntel(done.getId(), false);
             }
@@ -179,7 +188,7 @@ public class OwnRaids {
                 RaidSync.applyHit(message.getJSONObject("hit"));
                 break;
             case "raidAction":
-                action(message.getString("id"), message.getString("action"));
+                action(message.getString("id"), message.getString("action"), message.optJSONObject("payload"));
                 break;
             case "raidEnded":
                 ended(message.getString("id"), message.getString("outcome"));

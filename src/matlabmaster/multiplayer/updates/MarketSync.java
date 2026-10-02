@@ -135,6 +135,7 @@ public class MarketSync {
                 String memberId = (String) ids.next();
                 addShip(cargo, memberId, ships.getJSONObject(memberId));
             }
+            cargo.removeEmptyStacks();
         }
     }
 
@@ -217,6 +218,7 @@ public class MarketSync {
                 String id = (String) ids.next();
                 addShip(cargo, id, added.getJSONObject(id));
             }
+            cargo.removeEmptyStacks(); //what was all bought leaves an empty stack (no item), as vanilla clears after trading
         }
     }
 

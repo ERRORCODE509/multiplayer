@@ -44,6 +44,8 @@ public class ColonyMirrors {
     private static final String ORIGINAL_NAME = "$mp_originalName";
     /** The modifier that makes a mirror's accessibility and stability its owner's. */
     private static final String AS_OWNER = "mp_as_owner";
+    /** The owner's numbers, as their game last described them (see asOwner). */
+    private static final String OWNER_ACCESS = "$mp_ownerAccess", OWNER_STABILITY = "$mp_ownerStability", OWNER_TARIFF = "$mp_ownerTariff";
 
     /** This game's player's colonies (owner's side). */
     public static JSONArray describeOwnColonies() throws JSONException {
@@ -245,31 +247,53 @@ public class ColonyMirrors {
         }
 
         //a mirror isn't running (no admin, no spaceport bonus, no stability from the owner's choices): what it
-        //would compute is meaningless, so it shows the owner's own numbers
-        if (colony.has("accessibility")) {
-            mirror.getAccessibilityMod().unmodifyFlat(AS_OWNER);
-            float own = mirror.getAccessibilityMod().computeEffective(0f);
-            mirror.getAccessibilityMod().modifyFlat(AS_OWNER, (float) colony.getDouble("accessibility") - own, "As in the owner's game");
-        }
+        //would compute is meaningless, so it shows the owner's own numbers (kept, and put back every second in the
+        //world, whose economy moves its own numbers in between: see keepOwnersNumbers)
+        MemoryAPI memory = mirror.getMemoryWithoutUpdate();
+        if (colony.has("accessibility")) memory.set(OWNER_ACCESS, (float) colony.getDouble("accessibility"));
         if (colony.has("stability")) {
-            mirror.getStability().unmodifyFlat(AS_OWNER);
-            float own = mirror.getStability().getModifiedValue();
-            float stability = (float) colony.getDouble("stability");
             //in the economy, vanilla decivilizes a market that stays at 0 stability: never the world's copy of
             //someone's colony (whether theirs does is their game's business)
-            if (inEconomy) stability = Math.max(1f, stability);
-            mirror.getStability().modifyFlat(AS_OWNER, stability - own, "As in the owner's game");
+            float stability = (float) colony.getDouble("stability");
+            memory.set(OWNER_STABILITY, inEconomy ? Math.max(1f, stability) : stability);
         }
-        if (colony.has("tariff")) {
-            mirror.getTariff().unmodifyFlat(AS_OWNER);
-            float own = mirror.getTariff().getModifiedValue();
-            mirror.getTariff().modifyFlat(AS_OWNER, (float) colony.getDouble("tariff") - own, "As in the owner's game");
-        }
+        if (colony.has("tariff")) memory.set(OWNER_TARIFF, (float) colony.getDouble("tariff"));
+        asOwner(mirror);
 
         //last, once it's all set up, like a new market: the world's economy (mirrors made before join it here)
         if (inEconomy && !mirror.isInEconomy()) {
             Global.getSector().getEconomy().addMarket(mirror, false);
             MultiplayerLog.log().info(mirror.getName() + " is part of the world's economy");
+        }
+    }
+
+    /** A mirror's accessibility, stability and tariff made its owner's again (the last they described). */
+    private static void asOwner(MarketAPI mirror) {
+        MemoryAPI memory = mirror.getMemoryWithoutUpdate();
+        if (memory.contains(OWNER_ACCESS)) {
+            mirror.getAccessibilityMod().unmodifyFlat(AS_OWNER);
+            float own = mirror.getAccessibilityMod().computeEffective(0f);
+            mirror.getAccessibilityMod().modifyFlat(AS_OWNER, memory.getFloat(OWNER_ACCESS) - own, "As in the owner's game");
+        }
+        if (memory.contains(OWNER_STABILITY)) {
+            mirror.getStability().unmodifyFlat(AS_OWNER);
+            float own = mirror.getStability().getModifiedValue();
+            mirror.getStability().modifyFlat(AS_OWNER, memory.getFloat(OWNER_STABILITY) - own, "As in the owner's game");
+        }
+        if (memory.contains(OWNER_TARIFF)) {
+            mirror.getTariff().unmodifyFlat(AS_OWNER);
+            float own = mirror.getTariff().getModifiedValue();
+            mirror.getTariff().modifyFlat(AS_OWNER, memory.getFloat(OWNER_TARIFF) - own, "As in the owner's game");
+        }
+    }
+
+    /**
+     * The world's side, every second: its economy changes its copies' numbers between their owners' updates (which
+     * only come when something changed in their game): put back to the owners'.
+     */
+    public static void keepOwnersNumbers() {
+        for (MarketAPI market : Global.getSector().getEconomy().getMarketsCopy()) {
+            if (isMirror(market) && !market.isPlanetConditionMarketOnly()) asOwner(market);
         }
     }
 
@@ -328,7 +352,7 @@ public class ColonyMirrors {
      */
     public static void release(MarketAPI mirror, String faction) {
         MemoryAPI memory = mirror.getMemoryWithoutUpdate();
-        for (String key : new String[] {OWNER, PLAYER_COLONY, ORIGINAL_MARKET, ORIGINAL_FACTION, ORIGINAL_NAME}) memory.unset(key);
+        for (String key : new String[] {OWNER, PLAYER_COLONY, ORIGINAL_MARKET, ORIGINAL_FACTION, ORIGINAL_NAME, OWNER_ACCESS, OWNER_STABILITY, OWNER_TARIFF}) memory.unset(key);
         mirror.getAccessibilityMod().unmodifyFlat(AS_OWNER);
         mirror.getStability().unmodifyFlat(AS_OWNER);
         mirror.getTariff().unmodifyFlat(AS_OWNER);

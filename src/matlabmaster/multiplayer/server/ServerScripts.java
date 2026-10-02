@@ -116,6 +116,7 @@ public class ServerScripts implements EveryFrameScript {
         boolean paused = Global.getSector().isPaused();
         if (serverInstance.isDedicated()) {
             hideOwnFleet(true);
+            keepOwnFleetSupplied(amount);
             //nobody plays here, so nothing should hold the world up
             if (paused && !Global.getSector().getCampaignUI().isShowingDialog()) {
                 Global.getSector().setPaused(false);
@@ -364,6 +365,8 @@ public class ServerScripts implements EveryFrameScript {
         CampaignFleetAPI own = Global.getSector().getPlayerFleet();
         if (own == null) return;
         ownFleetHidden = hide;
+        suppliesKept = hide ? own.getCargo().getSupplies() : -1f;
+        fuelKept = hide ? own.getCargo().getFuel() : -1f;
         if (hide) {
             own.getMemoryWithoutUpdate().set(MemFlags.FLEET_IGNORED_BY_OTHER_FLEETS, true);
             own.getStats().getDetectedRangeMod().modifyMult(HIDDEN_ID, 0f, "Dedicated multiplayer server");
@@ -382,6 +385,37 @@ public class ServerScripts implements EveryFrameScript {
                 member.getStats().getSuppliesPerMonth().unmodify(HIDDEN_ID);
             }
         }
+    }
+
+    /** What the dedicated server's own fleet has to keep: never less (-1: not hidden). Goes up as it gains some. */
+    private float suppliesKept = -1f, fuelKept = -1f;
+    private float suppliedTimer = 0f;
+
+    /**
+     * Every frame while hidden: the supplies and fuel it spent put back (repairs and CR recovery after a battle
+     * aren't monthly upkeep), as Console Commands' infinitesupplies does; more than it had (bought, given), or what
+     * it has while paused (sold at a market), is the new level. Every second, the no-supplies modifier on every ship again: vanilla rebuilds a ship's stats after
+     * battles, repairs and refits, dropping it, and new ships never had it.
+     */
+    private void keepOwnFleetSupplied(float amount) {
+        if (!ownFleetHidden) return;
+        CampaignFleetAPI own = Global.getSector().getPlayerFleet();
+        if (own == null) return;
+        float supplies = own.getCargo().getSupplies(), fuel = own.getCargo().getFuel();
+        //paused (a market, a dialog): whatever it has now is what it keeps, so selling some sticks
+        boolean paused = Global.getSector().isPaused();
+        if (paused || supplies > suppliesKept) suppliesKept = supplies;
+        else if (supplies < suppliesKept) own.getCargo().addSupplies(suppliesKept - supplies);
+        if (paused || fuel > fuelKept) fuelKept = fuel;
+        else if (fuel < fuelKept) own.getCargo().addFuel(fuelKept - fuel);
+        suppliedTimer += amount;
+        if (suppliedTimer < 1f) return;
+        suppliedTimer = 0f;
+        for (FleetMemberAPI member : own.getFleetData().getMembersListCopy()) {
+            member.getStats().getSuppliesPerMonth().modifyMult(HIDDEN_ID, 0f, "Dedicated multiplayer server");
+        }
+        own.getStats().getFuelUseHyperMult().modifyMult(HIDDEN_ID, 0f, "Dedicated multiplayer server");
+        own.getStats().getFuelUseNormalMult().modifyMult(HIDDEN_ID, 0f, "Dedicated multiplayer server");
     }
 
     private void broadcastWorldPaused(boolean paused) {

@@ -11,10 +11,15 @@ import com.fs.starfarer.api.impl.campaign.ids.MemFlags;
 import com.fs.starfarer.api.impl.campaign.intel.deciv.DecivTracker;
 import com.fs.starfarer.api.impl.campaign.population.CoreImmigrationPluginImpl;
 import com.fs.starfarer.api.impl.campaign.ids.Factions;
+import com.fs.starfarer.api.impl.campaign.intel.group.BaseFGAction;
 import com.fs.starfarer.api.impl.campaign.intel.group.BlockadeFGI;
 import com.fs.starfarer.api.impl.campaign.intel.group.FGBlockadeAction;
 import com.fs.starfarer.api.impl.campaign.intel.group.KnightsOfLuddTakeoverExpedition;
 import com.fs.starfarer.api.impl.campaign.intel.group.PerseanLeagueBlockade;
+import com.fs.starfarer.api.impl.campaign.intel.group.PerseanLeaguePunitiveExpedition;
+import com.fs.starfarer.api.impl.campaign.intel.group.SindrianDiktatPunitiveExpedition;
+import com.fs.starfarer.api.impl.campaign.intel.group.TTMercenaryAttack;
+import com.fs.starfarer.api.impl.campaign.intel.group.TTMercenaryReversedAttack;
 import com.fs.starfarer.api.impl.campaign.intel.group.FGRaidAction;
 import com.fs.starfarer.api.impl.campaign.intel.group.FleetGroupIntel;
 import com.fs.starfarer.api.impl.campaign.intel.group.GenericRaidFGI;
@@ -86,8 +91,11 @@ public class RaidSync {
         json.put("source", params.source.getId());
         json.put("fleetSizes", new JSONArray(params.fleetSizes));
         json.put("style", params.style == null ? null : params.style.name());
-        //what's left of it: a raid made before joining may be on its way already (then it starts out from its source)
-        json.put("prepDays", raid.isInPreLaunchDelay() ? raid.getDelayRemaining() : 0f);
+        //what's left of its preparation (frozen here as soon as it's made); a raid made before joining may be on its
+        //way already (then it starts out from its source)
+        float prep = raid.isInPreLaunchDelay() ? raid.getDelayRemaining() : 0f;
+        if (raid.isCurrent(GenericRaidFGI.PREPARE_ACTION) && raid.getWaitAction() != null) prep += raid.getWaitAction().getDurDays();
+        json.put("prepDays", prep);
         json.put("payloadDays", params.payloadDays);
         json.put("makeFleetsHostile", params.makeFleetsHostile);
         json.put("repImpact", params.repImpact == null ? null : params.repImpact.name());
@@ -224,48 +232,40 @@ public class RaidSync {
     }
 
     /**
-     * The owner's class of raid (vanilla's subclasses: punitive expeditions, mercenaries; or another mod's) if it can
-     * be made from its params, else a plain one. Whatever it puts in the sector's memory for itself (a subclass's
+     * The owner's class of raid (vanilla's subclasses: punitive expeditions, mercenaries), else a plain one. Whatever it puts in the sector's memory for itself (a subclass's
      * "the current expedition" key) is put back as it was: that's the host's crisis's, not this raid's.
      */
     private static GenericRaidFGI construct(String className, GenericRaidFGI.GenericRaidParams params) {
         Map<String, Object> before = memoryRefs();
-        GenericRaidFGI raid = null;
-        try {
-            Class<?> cls = Global.getSettings().getScriptClassLoader().loadClass(className);
-            if (GenericRaidFGI.class.isAssignableFrom(cls) && !BlockadeFGI.class.isAssignableFrom(cls)) {
-                raid = (GenericRaidFGI) cls.getConstructor(GenericRaidFGI.GenericRaidParams.class).newInstance(params);
-            }
-        } catch (Throwable e) {
-            MultiplayerLog.log().warn("Couldn't make a " + className + " here (" + e + "): a plain raid instead");
+        //by name, not reflection (the game forbids it to mods): vanilla's subclasses, anything else a plain raid
+        GenericRaidFGI raid;
+        if (SindrianDiktatPunitiveExpedition.class.getName().equals(className)) raid = new SindrianDiktatPunitiveExpedition(params);
+        else if (PerseanLeaguePunitiveExpedition.class.getName().equals(className)) raid = new PerseanLeaguePunitiveExpedition(params);
+        else if (TTMercenaryAttack.class.getName().equals(className)) raid = new TTMercenaryAttack(params);
+        else if (TTMercenaryReversedAttack.class.getName().equals(className)) raid = new TTMercenaryReversedAttack(params);
+        else {
+            if (!GenericRaidFGI.class.getName().equals(className)) MultiplayerLog.log().warn("A " + className + " is run as a plain raid here");
+            raid = new GenericRaidFGI(params);
         }
-        if (raid == null) raid = new GenericRaidFGI(params);
         restoreMemoryRefs(before, raid);
         return raid;
     }
 
     /**
      * The same for blockades: vanilla's two as the world's versions (WorldBlockades: they'd call themselves off
-     * without the host having a colony crisis of their own), another mod's if it can be made, else a plain one.
+     * without the host having a colony crisis of their own), anything else a plain one.
      */
     private static GenericRaidFGI constructBlockade(String className, GenericRaidFGI.GenericRaidParams params, FGBlockadeAction.FGBlockadeParams blockade) {
         Map<String, Object> before = memoryRefs();
-        GenericRaidFGI raid = null;
-        try {
-            if (PerseanLeagueBlockade.class.getName().equals(className)) {
-                raid = new WorldBlockades.LeagueBlockade(params, blockade);
-            } else if (KnightsOfLuddTakeoverExpedition.class.getName().equals(className)) {
-                raid = new WorldBlockades.TakeoverExpedition(params, blockade);
-            } else {
-                Class<?> cls = Global.getSettings().getScriptClassLoader().loadClass(className);
-                if (BlockadeFGI.class.isAssignableFrom(cls)) {
-                    raid = (GenericRaidFGI) cls.getConstructor(GenericRaidFGI.GenericRaidParams.class, FGBlockadeAction.FGBlockadeParams.class).newInstance(params, blockade);
-                }
-            }
-        } catch (Throwable e) {
-            MultiplayerLog.log().warn("Couldn't make a " + className + " here (" + e + "): a plain blockade instead");
+        GenericRaidFGI raid;
+        if (PerseanLeagueBlockade.class.getName().equals(className)) {
+            raid = new WorldBlockades.LeagueBlockade(params, blockade);
+        } else if (KnightsOfLuddTakeoverExpedition.class.getName().equals(className)) {
+            raid = new WorldBlockades.TakeoverExpedition(params, blockade);
+        } else {
+            if (!BlockadeFGI.class.getName().equals(className)) MultiplayerLog.log().warn("A " + className + " is run as a plain blockade here");
+            raid = new BlockadeFGI(params, blockade);
         }
-        if (raid == null) raid = new BlockadeFGI(params, blockade);
         restoreMemoryRefs(before, raid);
         return raid;
     }
@@ -309,6 +309,51 @@ public class RaidSync {
             }
         }
         return best;
+    }
+
+    // --- how the raiding went (the owner's raid tells its intel update from it) ---
+
+    /** World's side: {"success": fraction, "raids": {market id: times raided}, "elapsed": days}. */
+    public static JSONObject payloadState(GenericRaidFGI raid) throws JSONException {
+        JSONObject state = new JSONObject();
+        GenericRaidFGI.GenericPayloadAction payload = raid.getRaidAction();
+        if (payload == null) return state;
+        state.put("success", payload.getSuccessFraction());
+        if (payload instanceof FGRaidAction) {
+            JSONObject raids = new JSONObject();
+            for (MarketAPI market : raid.getParams().raidParams.allowedTargets) {
+                int count = ((FGRaidAction) payload).getRaidCount().getCount(market);
+                if (count > 0) raids.put(market.getId(), count);
+            }
+            state.put("raids", raids);
+        }
+        if (payload instanceof BaseFGAction) state.put("elapsed", ((BaseFGAction) payload).getElapsed());
+        return state;
+    }
+
+    /**
+     * Owner's side: the world's raiding on its raid (frozen here, it raided nothing), so it tells its intel update
+     * as vanilla would: the colonies raided as often, a blockade as long. Whether it now counts as succeeded as the
+     * world's does (a bombardment's count can't be set: then it doesn't).
+     */
+    public static boolean applyPayloadState(GenericRaidFGI raid, JSONObject state) {
+        GenericRaidFGI.GenericPayloadAction payload = raid.getRaidAction();
+        if (payload == null || state == null) return true;
+        JSONObject raids = state.optJSONObject("raids");
+        if (raids != null && payload instanceof FGRaidAction) {
+            for (Iterator<?> it = raids.keys(); it.hasNext(); ) {
+                String id = (String) it.next();
+                MarketAPI market = Global.getSector().getEconomy().getMarket(id);
+                if (market == null) continue;
+                int more = raids.optInt(id) - ((FGRaidAction) payload).getRaidCount().getCount(market);
+                if (more > 0) ((FGRaidAction) payload).getRaidCount().add(market, more);
+            }
+        }
+        if (state.has("elapsed") && payload instanceof BaseFGAction) {
+            BaseFGAction action = (BaseFGAction) payload;
+            action.setElapsed(Math.max(action.getElapsed(), (float) state.optDouble("elapsed")));
+        }
+        return (state.optDouble("success", 0) > 0) == (payload.getSuccessFraction() > 0);
     }
 
     // --- what the world did to a player's colony's copy ---
@@ -358,26 +403,20 @@ public class RaidSync {
         return hit;
     }
 
-    /** The reason given for the latest unrest (the one with the most time left), as the colony screen lists it. */
+    /**
+     * What the unrest is from, worded as vanilla's raids word it ("Pirate raid"): the faction that raided it (the
+     * reasons of its "recently raided" flag), else a bombardment, else just a raid.
+     */
     private static String latestReason(MarketAPI mirror) {
-        RecentUnrest unrest = RecentUnrest.get(mirror, false);
-        String best = "Raid";
-        float bestDays = -1f;
-        if (unrest == null) return best;
-        try {
-            java.lang.reflect.Field field = RecentUnrest.class.getDeclaredField("reasons");
-            field.setAccessible(true);
-            com.fs.starfarer.api.util.TimeoutTracker<?> reasons = (com.fs.starfarer.api.util.TimeoutTracker<?>) field.get(unrest);
-            for (Object reason : reasons.getItems()) {
-                @SuppressWarnings("unchecked")
-                float days = ((com.fs.starfarer.api.util.TimeoutTracker<Object>) reasons).getRemaining(reason);
-                if (days > bestDays) {
-                    bestDays = days;
-                    best = String.valueOf(reason);
-                }
-            }
-        } catch (Exception ignored) { }
-        return best;
+        MemoryAPI memory = mirror.getMemoryWithoutUpdate();
+        String prefix = MemFlags.RECENTLY_RAIDED + "_";
+        for (String key : memory.getKeys()) {
+            if (!key.startsWith(prefix) || !memory.getBoolean(key)) continue;
+            com.fs.starfarer.api.campaign.FactionAPI faction = Global.getSector().getFaction(key.substring(prefix.length()));
+            if (faction != null) return Misc.ucFirst(faction.getPersonNamePrefix()) + " raid";
+        }
+        if (memory.contains(MemFlags.RECENTLY_BOMBARDED)) return "Tactical bombardment";
+        return "Raid";
     }
 
     /** Owner's side: the world's raid (or bombardment) on the copy of one of this game's colonies, on the colony. */

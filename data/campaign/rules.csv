@@ -8,4 +8,5 @@ mp_tariffSet,DialogOptionSelected,MP_Tariff isOption,"MP_Tariff set
 FireAll PopulateOptions",,,
 mp_noAttackPlayerColony,PopulateOptions,"$hasMarket
 $menuState == main
-$market.mp_playerColony",RemoveOption marketConsiderHostile,,,"multiplayer mod: another player's colony can't be engaged, raided, bombarded or invaded (players don't fight each other)"
+$market.mp_playerColony","SetEnabled marketConsiderHostile false
+SetTooltip marketConsiderHostile ""Another player's colony: players can't fight each other.""",,,"multiplayer mod: another player's colony can't be engaged, raided, bombarded or invaded (players don't fight each other). Disabled, not removed: removing an option broke the menu (Trade, Esc)"

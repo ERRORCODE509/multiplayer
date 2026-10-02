@@ -144,6 +144,7 @@ public class ServerRaids {
         if (timer < INTERVAL) return;
         timer = 0f;
         try {
+            ColonyMirrors.keepOwnersNumbers();
             followRaids();
             watchColonies(true);
         } catch (Exception e) {
@@ -172,7 +173,9 @@ public class ServerRaids {
             String actionId = action == null ? null : action.getId();
             if (ownerClient != null && actionId != null && !actionId.equals(lastAction.get(id))) {
                 lastAction.put(id, actionId);
-                server.sendTo(ownerClient, new JSONObject().put("commandId", "raidAction").put("id", id).put("action", actionId).toString());
+                JSONObject packet = new JSONObject().put("commandId", "raidAction").put("id", id).put("action", actionId);
+                packet.put("payload", RaidSync.payloadState(raid)); //how its raiding went, for the owner's intel update
+                server.sendTo(ownerClient, packet.toString());
             }
         }
     }
