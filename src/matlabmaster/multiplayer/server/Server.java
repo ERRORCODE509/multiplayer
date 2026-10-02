@@ -31,7 +31,7 @@ import org.lwjgl.util.vector.Vector2f;
 
 public class Server {
     /** Bump whenever client and server messages change in a way an older version can't handle; checked on join. */
-    public static final int PROTOCOL_VERSION = 7; //2: the server's game is the only authority. 3: player factions, markets. 4: hello (player ids), colonies. 5: trade at colonies. 6: the world's debris on joining. 7: the world runs raids on players' colonies
+    public static final int PROTOCOL_VERSION = 8; //2: the server's game is the only authority. 3: player factions, markets. 4: hello (player ids), colonies. 5: trade at colonies. 6: the world's debris on joining. 7: the world runs raids on players' colonies. 8: salvage, world owners, world markets, bounties
 
     private int port;
     private ServerSocket serverSocket;

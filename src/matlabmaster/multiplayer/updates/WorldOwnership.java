@@ -82,6 +82,7 @@ public class WorldOwnership {
      * objectives. Returns the markets the world has and this game doesn't, not asked for yet (to ask the server).
      */
     public static List<String> apply(JSONObject state) throws JSONException {
+        boolean announce = state.has("removedMarkets"); //changes, not the whole list on joining
         int changedMarkets = 0, changedObjectives = 0;
         List<String> missing = new ArrayList<>();
         JSONObject markets = state.optJSONObject("markets");
@@ -92,7 +93,7 @@ public class WorldOwnership {
                     if (unknown.add(id)) missing.add(id);
                     continue;
                 }
-                if (applyMarket(id, markets.getJSONObject(id))) changedMarkets++;
+                if (applyMarket(id, markets.getJSONObject(id), announce)) changedMarkets++;
             }
         }
         JSONArray removed = state.optJSONArray("removedMarkets");
@@ -120,7 +121,7 @@ public class WorldOwnership {
         return missing;
     }
 
-    private static boolean applyMarket(String id, JSONObject wanted) throws JSONException {
+    private static boolean applyMarket(String id, JSONObject wanted, boolean announce) throws JSONException {
         MarketAPI market = Global.getSector().getEconomy().getMarket(id);
         if (market == null) market = WorldMarkets.findCopy(id);
         if (market == null) return false;
@@ -137,6 +138,11 @@ public class WorldOwnership {
                 if (submarket.getFaction() != null && from.equals(submarket.getFaction().getId())) submarket.setFaction(to);
             }
             MultiplayerLog.log().info(market.getName() + " is " + to.getDisplayName() + "'s now (was " + from + ")");
+            //news worth a line in the campaign log, as the player's own game would have shown it (not the whole
+            //world's state on joining)
+            if (announce && !market.isHidden() && Global.getSector().getCampaignUI() != null) {
+                Global.getSector().getCampaignUI().addMessage(market.getName() + " is now " + to.getDisplayNameWithArticle() + "'s", to.getBaseUIColor());
+            }
             changed = true;
         }
         int size = wanted.optInt("size", market.getSize());
