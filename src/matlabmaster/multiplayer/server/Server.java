@@ -399,7 +399,13 @@ public class Server {
                     JSONObject result = json.getJSONObject("result");
                     gameThreadTasks.add(() -> {
                         try {
-                            BattleSync.apply(who(clientId), result);
+                            BattleSync.apply(who(clientId), result, reward -> {
+                                try {
+                                    sendTo(clientId, new JSONObject().put("commandId", "bountyReward").put("reward", reward).toString());
+                                } catch (JSONException e) {
+                                    MultiplayerLog.log().error("Couldn't send " + who(clientId) + " their bounty", e);
+                                }
+                            });
                         } catch (Exception e) {
                             MultiplayerLog.log().error("Failed to apply a battle of " + clientId, e);
                         }

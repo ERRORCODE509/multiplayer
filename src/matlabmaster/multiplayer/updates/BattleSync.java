@@ -6,6 +6,7 @@ import com.fs.starfarer.api.campaign.CampaignEventListener;
 import com.fs.starfarer.api.campaign.CampaignFleetAPI;
 import com.fs.starfarer.api.campaign.SectorEntityToken;
 import com.fs.starfarer.api.fleet.FleetMemberAPI;
+import com.fs.starfarer.api.impl.campaign.intel.PersonBountyIntel;
 import matlabmaster.multiplayer.MultiplayerLog;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -62,8 +63,11 @@ public class BattleSync {
         return result;
     }
 
-    /** Server: applies a player's battle result to the world's NPC fleets. */
-    public static void apply(String player, JSONObject result) throws JSONException {
+    /**
+     * Server: applies a player's battle result to the world's NPC fleets. A bounty's target among them whose wanted
+     * ship is gone is the player's (WorldBounties): its reward goes to bountyClaimed.
+     */
+    public static void apply(String player, JSONObject result, java.util.function.Consumer<JSONObject> bountyClaimed) throws JSONException {
         for (Iterator<?> it = result.keys(); it.hasNext(); ) {
             String id = (String) it.next();
             SectorEntityToken entity = Global.getSector().getEntityById(id);
@@ -74,6 +78,15 @@ public class BattleSync {
             //took a market's station out of the world for good (Jangala Station): left to the server's game
             if (fleet.isStationMode()) continue;
             JSONObject outcome = result.getJSONObject(id);
+            PersonBountyIntel bounty = WorldBounties.bountyOn(fleet);
+            if (bounty != null) {
+                String target = WorldBounties.targetShip(bounty, fleet);
+                JSONObject ships = outcome.optJSONObject("ships");
+                if (outcome.optBoolean("destroyed") || target == null || ships == null || !ships.has(target)) {
+                    MultiplayerLog.log().info(player + " beat the bounty target " + fleet.getName());
+                    bountyClaimed.accept(WorldBounties.claim(bounty));
+                }
+            }
             if (outcome.optBoolean("destroyed")) {
                 destroy(fleet, player);
                 continue;

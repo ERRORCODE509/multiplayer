@@ -14,6 +14,7 @@ import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.updates.BattleSync;
 import matlabmaster.multiplayer.updates.DebrisSync;
 import matlabmaster.multiplayer.updates.EntitySync;
+import matlabmaster.multiplayer.updates.WorldBounties;
 import matlabmaster.multiplayer.updates.WorldOwnership;
 import matlabmaster.multiplayer.updates.FleetSync;
 import matlabmaster.multiplayer.updates.WorldSync;
@@ -48,6 +49,8 @@ public class ClientScripts implements EveryFrameScript {
     private final OwnRaids ownRaids = new OwnRaids();
     /** The world's salvageable things: what's gone from the world goes here, what we salvage goes there. */
     private final WorldEntities worldEntities = new WorldEntities();
+    /** The world's open bounties, in our intel tab while connected. */
+    private final BountyBoard bountyBoard = new BountyBoard();
     /** Our reputation and faction as last sent to the server (null: not since joining), see sendOwnFaction. */
     private String factionSent = null;
     /** The battle debris fields the server knows of (ours sent, or others' received), see syncDebris. */
@@ -121,6 +124,7 @@ public class ClientScripts implements EveryFrameScript {
             ownRaids.reset();
             worldEntities.reset();
             WorldOwnership.reset();
+            bountyBoard.reset();
             if (client != null && client.wasPaused) { //left in a dialog: never told the server, nobody to tell now
                 client.wasPaused = false;
                 PauseUtility.clearPausedName();
@@ -148,6 +152,7 @@ public class ClientScripts implements EveryFrameScript {
             sendOwnFaction();
             if (!client.isSelfHosted) {
                 CopyAI.installAround(Global.getSector().getPlayerFleet()); //the world's fleets decide as vanilla's
+                bountyBoard.keep();
                 syncDebris();
                 removeDuplicateCopies();
             }
@@ -201,6 +206,7 @@ public class ClientScripts implements EveryFrameScript {
     public void restoreSectorScripts() {
         sectorScriptsUtility.restoreScripts();
         CopyAI.removeAll(); //never in a save: put back within a second
+        bountyBoard.removeAll(); //the same
     }
 
     /** A new game was loaded: any scripts saved from the previous game belong to a sector that is gone. */
@@ -209,6 +215,7 @@ public class ClientScripts implements EveryFrameScript {
         interactionOrbit.forget();
         ownRaids.reset();
         worldEntities.reset();
+        bountyBoard.forget();
         ownColonyIds = null; //another game's colonies
         PauseUtility.clearPausedName(); //a save from before this was fixed may have it
         PositionSmoothing.clear();
@@ -329,6 +336,13 @@ public class ClientScripts implements EveryFrameScript {
                     MultiplayerLog.log().info("The world has " + ids.size() + " battle debris fields" + (removed > 0 ? "; removed " + removed + " gone since we were last here" : ""));
                     break;
                 }
+                case "worldBounties":
+                    if (!client.isSelfHosted) bountyBoard.listed(message.getJSONArray("bounties"));
+                    break;
+                case "bountyReward":
+                    //we beat a world bounty's target: paid as vanilla pays
+                    if (!client.isSelfHosted) WorldBounties.reward(message.getJSONObject("reward"));
+                    break;
                 case "worldOwnership":
                     //who owns the world's markets and objectives (all of them on joining, then what changed)
                     if (!client.isSelfHosted) WorldOwnership.apply(message.getJSONObject("state"));
