@@ -125,6 +125,16 @@ Unlicense, as its developer stated (also in `LICENSE`).
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
+- [ ] **Encrypted connection and accounts (`dba2603`, `094b692`, untested in game; TLS checked outside it).** Every
+  game must be started by the launcher (the agent does the TLS): `Start Server Launcher.bat` -> START SERVER, then
+  START MY GAME. A game started without it can't join an encrypted server (and logs that it isn't encrypted).
+  1. Server log "The connection is encrypted (TLS 1.3, this server's certificate)"; the first time,
+     starsector-core/multiplayer-server.p12 + .pass are made. Your game's first join pins it
+     (starsector-core/multiplayer-known-servers.properties) and connects as before.
+  2. JOIN MODE: User and Password fields. A new username makes the account (password at least 6 characters;
+     server log "New account <user> for <name>"); joining again needs the same password ("Login refused: Wrong
+     password for <user>" otherwise, in the campaign log and the window's log).
+  3. Same user from another save: you're that account's player (its faction), not the save's.
 - [ ] **The server instance loads its save by itself (`0ed6acc`, untested).** Close everything (the launcher jars
   changed too), start `Start Server Launcher.bat`, pick the save, START SERVER: the server instance should go from
   the title screen into the campaign after about a second, no clicks (its log: "Loading the world's save ...";
@@ -284,14 +294,15 @@ hyperspace gravity wells, factions shown in the intel tab only while connected.
 ## Plan: accounts, server-held players (agreed with the user 2026-10-02)
 Goal: competitive play over the internet with the server as the store of information. Agreed limits: combat runs in
 the players' games (results trusted, sanity-checked at best); colonies stay in the owner's game for now.
-1. Encrypted connection (in progress): TLS done by the agent (the game forbids mods file access, reflection and
+1. Encrypted connection (done, `dba2603`): TLS done by the agent (the game forbids mods file access, reflection and
    some java.io classes, so the mod never touches TLS classes): the server's certificate is made once with the
    JRE's keytool, kept next to the game (starsector-core/multiplayer-server.p12 + .pass); clients pin each server's
    certificate on first connect (trust on first use, starsector-core/multiplayer-known-servers.properties) and
    refuse it if it changes. The mod gets plain ServerSocket/Socket objects through System.getProperties()
    functions ("multiplayer.secureServerSocket", "multiplayer.secureSocket"). Without the agent: unencrypted.
-2. Accounts: username + password in the join window; the server keeps "account:<user>" -> player id, salt,
-   PBKDF2 hash (hashing in the agent too); the account decides who you are, not the client's own player id.
+2. Accounts (done, `094b692`): username + password in the join window; the server keeps "account:<user>" ->
+   player id, salt, PBKDF2 hash (agent `Passwords`), "accountOf:<player id>"; the account decides who you are.
+   Not yet: changing a password, the host's own client (exempt), login from the title screen (step 3).
 3. First join: the server sends its world's seed (and mods/version, and what Nexerelin's new-game options need to
    match) before the player has a game; the vanilla new-game screens run with that seed locked in (a rule command
    on the dialog's $characterData: CharacterCreationData.setSeed); then they join for real.
