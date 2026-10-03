@@ -303,9 +303,15 @@ the players' games (results trusted, sanity-checked at best); colonies stay in t
 2. Accounts (done, `094b692`): username + password in the join window; the server keeps "account:<user>" ->
    player id, salt, PBKDF2 hash (agent `Passwords`), "accountOf:<player id>"; the account decides who you are.
    Not yet: changing a password, the host's own client (exempt), login from the title screen (step 3).
-3. First join: the server sends its world's seed (and mods/version, and what Nexerelin's new-game options need to
-   match) before the player has a game; the vanilla new-game screens run with that seed locked in (a rule command
-   on the dialog's $characterData: CharacterCreationData.setSeed); then they join for real.
+3. First join, no new-game screens (revised 2026-10-02, the user's idea): the player logs in from the title
+   screen; the server sends its world's seed, game version/mods and Nexerelin's new-game options; the agent makes
+   the new game itself, as the title screen does after its dialog (TitleScreenState.dialogDismissed, "Error
+   creating new game" branch: CampaignEngine.resetInstance(), CampaignGameManager's (CharacterCreationData impl
+   `campaign.save.return`, CampaignState) -> String, goToState("Campaign State")), with a CharacterCreationData it
+   fills: the seed, the username as the character's name (default), a default portrait, a placeholder start (the
+   server's record replaces fleet, cargo, credits, skills: step 4). Nexerelin: its choices are rule commands
+   (Nex_NGCSetOption, Nex_NGCFinalize...) into its setup data: set from the server's values. Check: what vanilla's
+   and the mods' new-game scripts (data.getScripts(), ModPlugin.onNewGame*) need that the dialog normally does.
 4. Player record on the server: character (level, skills, story points, XP), fleet and officers, cargo, credits,
    reputation, blueprints, kept live from what the game already streams (+ the character). On login the player's
    local save for that server loads (agent SaveLoader) and the record overwrites their personal state.
