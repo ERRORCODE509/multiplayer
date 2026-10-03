@@ -19,6 +19,8 @@ public class UI extends JFrame {
 
     private JTextField ipField;
     private JTextField portField;
+    private JTextField userField;
+    private JPasswordField passwordField;
     private JComboBox<String> modeSelector;
     private JLabel serverTimeLabel;
     private JLabel playersLabel;
@@ -86,6 +88,13 @@ public class UI extends JFrame {
         configPanel.add(new JLabel("Mode: ")); configPanel.add(modeSelector);
         configPanel.add(new JLabel(" IP: ")); configPanel.add(ipField);
         configPanel.add(new JLabel(" Port: ")); configPanel.add(portField);
+        //the server's account (joining): a new username makes one
+        userField = new JTextField(10);
+        passwordField = new JPasswordField(10);
+        userField.setEnabled(false);
+        passwordField.setEnabled(false);
+        configPanel.add(new JLabel(" User: ")); configPanel.add(userField);
+        configPanel.add(new JLabel(" Password: ")); configPanel.add(passwordField);
         
         // --- SERVER TIME CLOCK ---
         serverTimeLabel = new JLabel("Disconnected");
@@ -145,6 +154,8 @@ public class UI extends JFrame {
     private void toggleMode() {
         boolean isJoin = modeSelector.getSelectedItem().equals("JOIN MODE");
         ipField.setEnabled(isJoin);
+        userField.setEnabled(isJoin);
+        passwordField.setEnabled(isJoin);
         hostDedicatedButton.setVisible(!isJoin);
         hostCurrentButton.setVisible(!isJoin);
         actionButton.setVisible(isJoin);
@@ -197,6 +208,8 @@ public class UI extends JFrame {
             final int connectPort = port;
             new Thread(() -> {
                 try {
+                    client.user = userField.getText().trim();
+                    client.password = new String(passwordField.getPassword());
                     client.connect(ipField.getText(), connectPort);
                     isRunning = true;
                     updateButtonStyle();

@@ -42,12 +42,13 @@ public class NearestPlayerAgent {
         preload("java.util.concurrent.ConcurrentHashMap$ForwardingNode", "java.util.concurrent.ConcurrentHashMap$ReservationNode",
                 "matlabmaster.multiplayer.agent.ClassPatcher", "matlabmaster.multiplayer.agent.ClassPatcher$Target",
                 "matlabmaster.multiplayer.agent.SaveLoader", "matlabmaster.multiplayer.agent.SecureSockets",
-                "matlabmaster.multiplayer.agent.SecureSockets$PinningTrust");
+                "matlabmaster.multiplayer.agent.SecureSockets$PinningTrust", "matlabmaster.multiplayer.agent.Passwords");
         System.getProperties().put(NearestPlayer.ACTIVE_KEY, Boolean.TRUE);
         //loading a save from the title screen without clicking through it (the server instance: see SaveLoader)
         System.getProperties().put(SaveLoader.LOAD_KEY, new SaveLoader());
         //the encrypted multiplayer connection (the mod can't do TLS itself: see SecureSockets)
         SecureSockets.install();
+        Passwords.install(); //and the server's account passwords
         Transformer transformer = new Transformer(classes);
         transformer.transform(null, "", null, null, new byte[0]); //runs once outside class loading, so it's all linked
         inst.addTransformer(transformer);

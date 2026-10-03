@@ -353,6 +353,11 @@ public class ClientScripts implements EveryFrameScript {
                     MultiplayerLog.log().info("The world has " + ids.size() + " battle debris fields" + (removed > 0 ? "; removed " + removed + " gone since we were last here" : ""));
                     break;
                 }
+                case "loginRefused":
+                    //wrong password, a username taken, ...: the server closes the connection
+                    MultiplayerLog.log().error("The server refused the login: " + message.optString("reason"));
+                    notify("Login refused: " + message.optString("reason"));
+                    break;
                 case "worldBounties":
                     if (!client.isSelfHosted) bountyBoard.listed(message.getJSONArray("bounties"));
                     break;

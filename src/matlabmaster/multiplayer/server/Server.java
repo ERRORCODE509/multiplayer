@@ -481,6 +481,18 @@ public class Server {
     private synchronized void hello(String clientId, JSONObject json) throws JSONException {
         String playerId = json.getString("playerId");
         String name = json.optString("name", "?");
+        //an account decides who they are (anyone can copy a save, and its player id); not the host's own client
+        if (!isLocalClient(clientId) && Accounts.available()) {
+            try {
+                playerId = Accounts.login(registry, json.optString("user", null), json.optString("password", null), playerId, name);
+            } catch (Accounts.Refused refused) {
+                MultiplayerLog.log().warn(name + " (" + clientId + ") couldn't log in: " + refused.getMessage());
+                sendTo(clientId, new JSONObject().put("commandId", "loginRefused").put("reason", refused.getMessage()).toString());
+                ClientHandler handler = clients.get(clientId);
+                if (handler != null) handler.closeConnection();
+                return;
+            }
+        }
         if (clientPlayers.containsValue(playerId)) {
             MultiplayerLog.log().warn(name + " (" + playerId + ") is already connected: refused " + clientId + " (the same save in two games?)");
             ClientHandler handler = clients.get(clientId);

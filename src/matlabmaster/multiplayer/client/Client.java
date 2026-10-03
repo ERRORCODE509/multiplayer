@@ -35,6 +35,8 @@ public class Client {
     /** Set by connect(); the rest of joining touches the game, so ClientScripts finishes it on the game thread. */
     private volatile boolean joinPending = false;
     public boolean isSelfHosted = false;
+    /** The account to log in with (the join window's fields). */
+    public volatile String user, password;
     /** "Host current game": the server running in this same game, which the host's own client joins. */
     public Server localServer;
     public boolean wasPaused = false;
@@ -120,6 +122,8 @@ public class Client {
             hello.put("commandId", "hello");
             hello.put("playerId", PlayerIdentity.id());
             hello.put("name", PlayerIdentity.name());
+            hello.put("user", user); //the server's account (see server Accounts); over the encrypted connection
+            hello.put("password", password);
             send(hello.toString());
         } catch (Exception e) {
             MultiplayerLog.log().error("Handshake failed", e);
