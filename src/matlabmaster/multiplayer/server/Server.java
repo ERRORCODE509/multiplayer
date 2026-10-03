@@ -12,6 +12,7 @@ import com.fs.starfarer.api.impl.campaign.ids.Factions;
 import matlabmaster.multiplayer.updates.BattleSync;
 import matlabmaster.multiplayer.updates.MarketSync;
 import matlabmaster.multiplayer.utils.PlayerFactions;
+import matlabmaster.multiplayer.utils.SecureLink;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.MultiplayerModPlugin;
 import matlabmaster.multiplayer.ui.UI;
@@ -188,7 +189,7 @@ public class Server {
 
         new Thread(() -> {
             try {
-                serverSocket = new ServerSocket(port);
+                serverSocket = SecureLink.serverSocket(port); //encrypted when the multiplayer agent runs
                 MultiplayerLog.log().info("Server started on port " + port);
 
                 while (isRunning) {

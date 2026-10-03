@@ -1,6 +1,7 @@
 package matlabmaster.multiplayer.client;
 
 import com.fs.starfarer.api.Global;
+import matlabmaster.multiplayer.utils.SecureLink;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.UserError;
 import matlabmaster.multiplayer.server.Server;
@@ -67,8 +68,8 @@ public class Client {
         if(Objects.equals(Global.getCurrentState().toString(), "TITLE")){
             throw new UserError("You cannot connect to a server while on the main menu, join any singleplayer game then try connecting");
         }
-        socket = new Socket();
-        socket.connect(new InetSocketAddress(ip, port), 5000);
+        socket = SecureLink.socket(ip, port); //encrypted and connected when the multiplayer agent runs, else plain
+        if (!socket.isConnected()) socket.connect(new InetSocketAddress(ip, port), 5000);
 
         out = new PrintWriter(socket.getOutputStream(), true, StandardCharsets.UTF_8); //UTF-8 like the reader; no OutputStreamWriter (not allowed to mods)
         in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
