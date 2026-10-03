@@ -114,11 +114,21 @@ Unlicense, as its developer stated (also in `LICENSE`).
   `worldMarket`: a copy of a world market the player's game lacks, station included; `$mp_worldMarketCopy`).
   `updates/WorldBounties` + `client/BountyBoard`/`WorldBountyIntel` (`worldBounties` board, `bountyReward` from
   BattleSync for a person bounty's target; system bounties paid client-side after its battles).
+- Server auto-load: the launcher adds `-Dmultiplayer.autoLoadSave=<save folder>`; `AutoLoadPlugin` (a combat
+  plugin in `data/config/settings.json` "plugins": the title screen's battle runs it) calls the agent's
+  `SaveLoader` through `System.getProperties()` ("multiplayer.loadSave"): `CampaignEngine.resetInstance()`, the
+  obfuscated `CampaignGameManager` loader (found by signature: static String (String, A, B) taking the session's
+  "campaign state in session" twice), `AppDriver.goToState("Campaign State")`, as `TitleScreenState
+  .dialogDismissed` does for its Load dialog (0.98a). Mods can't do it themselves (no reflection).
 - Agent (`-javaagent`, added by the launcher): `NearestPlayer` (fleet spawning around every player),
   `FullRateLocations` (locations with a player run every frame; patches `CampaignEngine.advance`, 17 calls).
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
+- [ ] **The server instance loads its save by itself (`0ed6acc`, untested).** Close everything (the launcher jars
+  changed too), start `Start Server Launcher.bat`, pick the save, START SERVER: the server instance should go from
+  the title screen into the campaign after about a second, no clicks (its log: "Loading the world's save ...";
+  "Couldn't load ... by itself: <why>" if not, then load it by hand as before), and host on its own.
 - [ ] **More of the world shared (protocol 8: `9c18451`, `254fc36`, `1b59692`, `5c19c53`, `ab4fc94`, `b3beae8`,
   untested; also `f9952a2`, `a9a7dea`, `1257987`, `60be6c7`, `254c6f5`, `926590a`).** Rebuild done; restart both games (both need the new jar).
   1. Salvage: salvage something in the world (a derelict ship, a cache, a probe) from your game: your log "Salvaged
