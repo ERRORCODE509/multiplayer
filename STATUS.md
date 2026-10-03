@@ -281,6 +281,26 @@ a second client (needs Commerce), player names in the join log, factions/reputat
 mirrors (name, accessibility, stability), markets, full-rate locations (smooth fleets away from the host),
 hyperspace gravity wells, factions shown in the intel tab only while connected.
 
+## Plan: accounts, server-held players (agreed with the user 2026-10-02)
+Goal: competitive play over the internet with the server as the store of information. Agreed limits: combat runs in
+the players' games (results trusted, sanity-checked at best); colonies stay in the owner's game for now.
+1. Encrypted connection (in progress): TLS done by the agent (the game forbids mods file access, reflection and
+   some java.io classes, so the mod never touches TLS classes): the server's certificate is made once with the
+   JRE's keytool, kept next to the game (starsector-core/multiplayer-server.p12 + .pass); clients pin each server's
+   certificate on first connect (trust on first use, starsector-core/multiplayer-known-servers.properties) and
+   refuse it if it changes. The mod gets plain ServerSocket/Socket objects through System.getProperties()
+   functions ("multiplayer.secureServerSocket", "multiplayer.secureSocket"). Without the agent: unencrypted.
+2. Accounts: username + password in the join window; the server keeps "account:<user>" -> player id, salt,
+   PBKDF2 hash (hashing in the agent too); the account decides who you are, not the client's own player id.
+3. First join: the server sends its world's seed (and mods/version, and what Nexerelin's new-game options need to
+   match) before the player has a game; the vanilla new-game screens run with that seed locked in (a rule command
+   on the dialog's $characterData: CharacterCreationData.setSeed); then they join for real.
+4. Player record on the server: character (level, skills, story points, XP), fleet and officers, cargo, credits,
+   reputation, blueprints, kept live from what the game already streams (+ the character). On login the player's
+   local save for that server loads (agent SaveLoader) and the record overwrites their personal state.
+5. Later: checks on record changes (credits, ships, cargo, rep need a cause the server saw); colonies run by the
+   server.
+
 ## Known limits / ideas (not started)
 - Crisis raids in the world (see Architecture), limits: a raid whose source market isn't in the world starts from
   the faction's nearest one; the world tracks hits on colonies only while it's hosting; blockade fleets don't
