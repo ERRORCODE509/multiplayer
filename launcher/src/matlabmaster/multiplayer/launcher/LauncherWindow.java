@@ -101,7 +101,7 @@ public class LauncherWindow extends JFrame {
         new Thread(() -> {
             try {
                 say(world.prepare(save, replace.isSelected()));
-                List<String> cmd = install.serverCommand(world.serverSaves, world.serverLogs, mem, p, MultiplayerLauncher.DEFAULT_RESOLUTION, MultiplayerLauncher.agentJar());
+                List<String> cmd = install.serverCommand(world.serverSaves, world.serverLogs, mem, p, MultiplayerLauncher.DEFAULT_RESOLUTION, MultiplayerLauncher.agentJar(), save);
                 ProcessBuilder pb = new ProcessBuilder(cmd).directory(install.workDir.toFile()).redirectErrorStream(true);
                 server = pb.start();
                 SwingUtilities.invokeLater(() -> stop.setEnabled(true));

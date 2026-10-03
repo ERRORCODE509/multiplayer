@@ -96,9 +96,10 @@ public class GameInstall {
     /**
      * The command for a server instance: the game's own command, with its own saves and logs folders and heap
      * size, started straight into the game (no launcher window: -DlaunchDirect, read by StarfarerLauncher) in a
-     * small window without sound, and told to host (-Dmultiplayer.serverMode, read by the mod).
+     * small window without sound, told to host (-Dmultiplayer.serverMode, read by the mod) and to load the world's
+     * save from the title screen by itself (-Dmultiplayer.autoLoadSave, the mod's AutoLoadPlugin; null: no).
      */
-    public List<String> serverCommand(Path serverSaves, Path serverLogs, int memoryMb, int port, String resolution, Path agentJar) {
+    public List<String> serverCommand(Path serverSaves, Path serverLogs, int memoryMb, int port, String resolution, Path agentJar, String save) {
         List<String> cmd = new ArrayList<>();
         cmd.add(java.toString());
         if (agentJar != null) cmd.add("-javaagent:" + agentJar.toAbsolutePath());
@@ -115,6 +116,7 @@ public class GameInstall {
         cmd.add("-DstartSound=false");
         cmd.add("-Dmultiplayer.serverMode=true");
         cmd.add("-Dmultiplayer.port=" + port);
+        if (save != null) cmd.add("-Dmultiplayer.autoLoadSave=" + serverSaves.resolve(save).toAbsolutePath());
         cmd.add(mainClass);
         return cmd;
     }

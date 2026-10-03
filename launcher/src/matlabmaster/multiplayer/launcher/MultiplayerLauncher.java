@@ -62,7 +62,7 @@ public class MultiplayerLauncher {
             System.out.println(world.serverHas(save) ? "Would use the server's existing copy of " + save : "Would copy " + save + " into the server's saves");
         }
         System.out.println("Agent: " + (agentJar() == null ? "not found (AI fleets will only spawn near the server's own fleet)" : agentJar()));
-        List<String> cmd = install.serverCommand(world.serverSaves, world.serverLogs, memory > 0 ? memory : install.memoryMb(), port, DEFAULT_RESOLUTION, agentJar());
+        List<String> cmd = install.serverCommand(world.serverSaves, world.serverLogs, memory > 0 ? memory : install.memoryMb(), port, DEFAULT_RESOLUTION, agentJar(), save);
         System.out.println("Command (" + cmd.size() + " parts):");
         for (String c : cmd) System.out.println("  " + c);
     }

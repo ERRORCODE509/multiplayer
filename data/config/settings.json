@@ -3,4 +3,8 @@
 	"ruleCommandPackages":[
 		"matlabmaster.multiplayer.rulecmd",
 	],
+	# the server instance loads the world's save from the title screen by itself (AutoLoadPlugin)
+	"plugins":{
+		"multiplayerAutoLoad":"matlabmaster.multiplayer.AutoLoadPlugin",
+	},
 }

@@ -40,8 +40,11 @@ public class NearestPlayerAgent {
         //even ConcurrentHashMap's internals aren't loaded yet; loading one later goes through the transformer, which
         //needs it itself: ClassCircularityError, and the JVM refuses to start
         preload("java.util.concurrent.ConcurrentHashMap$ForwardingNode", "java.util.concurrent.ConcurrentHashMap$ReservationNode",
-                "matlabmaster.multiplayer.agent.ClassPatcher", "matlabmaster.multiplayer.agent.ClassPatcher$Target");
+                "matlabmaster.multiplayer.agent.ClassPatcher", "matlabmaster.multiplayer.agent.ClassPatcher$Target",
+                "matlabmaster.multiplayer.agent.SaveLoader");
         System.getProperties().put(NearestPlayer.ACTIVE_KEY, Boolean.TRUE);
+        //loading a save from the title screen without clicking through it (the server instance: see SaveLoader)
+        System.getProperties().put(SaveLoader.LOAD_KEY, new SaveLoader());
         Transformer transformer = new Transformer(classes);
         transformer.transform(null, "", null, null, new byte[0]); //runs once outside class loading, so it's all linked
         inst.addTransformer(transformer);
