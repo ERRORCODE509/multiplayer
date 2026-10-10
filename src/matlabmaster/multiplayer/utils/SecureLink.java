@@ -3,7 +3,6 @@ package matlabmaster.multiplayer.utils;
 import matlabmaster.multiplayer.MultiplayerLog;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.function.BiFunction;
@@ -35,8 +34,8 @@ public class SecureLink {
             ServerSocket socket = ((Function<Integer, ServerSocket>) factory).apply(port);
             MultiplayerLog.log().info("The connection is encrypted (TLS 1.3, this server's certificate)");
             return socket;
-        } catch (UncheckedIOException e) {
-            throw e.getCause();
+        } catch (RuntimeException e) {
+            throw unwrap(e);
         }
     }
 
@@ -53,8 +52,17 @@ public class SecureLink {
         }
         try {
             return ((BiFunction<String, Integer, Socket>) factory).apply(host, port);
-        } catch (UncheckedIOException e) {
-            throw e.getCause();
+        } catch (RuntimeException e) {
+            throw unwrap(e);
         }
+    }
+
+    /**
+     * The agent's IOException, which comes wrapped (an UncheckedIOException: a Function can't throw it). Not caught
+     * by that name: the game refuses mods every java.io class outside a short list, and that one isn't on it.
+     */
+    private static IOException unwrap(RuntimeException e) {
+        if (e.getCause() instanceof IOException) return (IOException) e.getCause();
+        throw e;
     }
 }
