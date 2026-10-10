@@ -482,6 +482,7 @@ public class ClientScripts implements EveryFrameScript {
                     //our faction in the other games, from the server's reply to our hello
                     client.faction = message.getString("faction");
                     if (!client.isSelfHosted) FleetFlags.ownFaction = client.faction; //the world's fleets made hostile to it are hostile to us
+                    TitleJoin.joined(client); //this save is our game for this server and account now
                     break;
                 case "playerColonies":
                     //another player's colonies (they run in their game): mirrored here. The host's game is the world:

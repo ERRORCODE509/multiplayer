@@ -4,12 +4,14 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 
+import com.fs.starfarer.api.GameState;
 import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.CampaignClockAPI;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.UserError;
 import matlabmaster.multiplayer.server.Server;
 import matlabmaster.multiplayer.client.Client;
+import matlabmaster.multiplayer.client.TitleJoin;
 
 public class UI extends JFrame {
     private JTextArea logArea;
@@ -206,25 +208,48 @@ public class UI extends JFrame {
             int port = parsePort();
             if (port <= 0) return;
             final int connectPort = port;
-            new Thread(() -> {
-                try {
-                    client.user = userField.getText().trim();
-                    client.password = new String(passwordField.getPassword());
-                    client.connect(ipField.getText(), connectPort);
-                    isRunning = true;
-                    updateButtonStyle();
-                }catch (UserError e){
-                    MultiplayerLog.log().warn(e.getMessage());
-                }
-                catch (Exception ex) {
-                    MultiplayerLog.log().error("UNABLE TO CONNECT. " + ex.toString(), ex);
-                    client.disconnect();
-                }
-            }).start();
+            String ip = ipField.getText();
+            String user = userField.getText().trim();
+            String password = new String(passwordField.getPassword());
+            if (Global.getCurrentState() == GameState.TITLE) {
+                //no game yet: log in, and the game for this server is loaded or made, then joins (TitleJoin)
+                new Thread(() -> {
+                    try {
+                        client.user = user;
+                        client.password = password;
+                        TitleJoin.login(client, ip, connectPort);
+                    } catch (UserError e) {
+                        MultiplayerLog.log().warn(e.getMessage());
+                    } catch (Exception ex) {
+                        MultiplayerLog.log().error("UNABLE TO LOG IN. " + ex.toString(), ex);
+                    }
+                }).start();
+                return;
+            }
+            join(ip, connectPort, user, password);
         } else {
             stopAll();
         }
 
+    }
+
+    /** Joins a server from the loaded game: CONNECT, or a login from the title screen once its game runs (TitleJoin). */
+    public void join(String ip, int port, String user, String password) {
+        new Thread(() -> {
+            try {
+                client.user = user;
+                client.password = password;
+                client.connect(ip, port);
+                isRunning = true;
+                updateButtonStyle();
+            }catch (UserError e){
+                MultiplayerLog.log().warn(e.getMessage());
+            }
+            catch (Exception ex) {
+                MultiplayerLog.log().error("UNABLE TO CONNECT. " + ex.toString(), ex);
+                client.disconnect();
+            }
+        }).start();
     }
 
     private void stopAll() {

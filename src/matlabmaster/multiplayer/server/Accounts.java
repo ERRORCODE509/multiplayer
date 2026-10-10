@@ -34,17 +34,10 @@ public class Accounts {
     /** The player id of this account (made if it's new), or Refused. Network thread (the hello). */
     @SuppressWarnings("unchecked")
     static synchronized String login(PlayerRegistry registry, String user, String password, String savePlayerId, String name) throws Refused, JSONException {
-        if (user == null || !user.matches("[A-Za-z0-9 _.\\-]{1,32}")) throw new Refused("Pick a username: up to 32 letters, digits, spaces, '_', '.' or '-'");
-        if (password == null || password.isEmpty()) throw new Refused("Enter your password");
+        String existing = check(registry, user, password);
+        if (existing != null) return existing;
         BiFunction<String, String, String> hash = (BiFunction<String, String, String>) System.getProperties().get(HASH_KEY);
         String key = "account:" + user.trim().toLowerCase();
-        String stored = registry.get(key);
-        if (stored != null) {
-            JSONObject account = new JSONObject(stored);
-            if (!hash.apply(account.getString("salt"), password).equals(account.getString("hash"))) throw new Refused("Wrong password for " + user);
-            return account.getString("player");
-        }
-        if (password.length() < MIN_PASSWORD) throw new Refused("New account: pick a password of at least " + MIN_PASSWORD + " characters");
         String taken = registry.get("accountOf:" + savePlayerId);
         if (taken != null) throw new Refused("This save already belongs to the account " + taken + ": log in with it");
         String salt = ((Supplier<String>) System.getProperties().get(SALT_KEY)).get();
@@ -53,5 +46,24 @@ public class Accounts {
         registry.put("accountOf:" + savePlayerId, user.trim());
         MultiplayerLog.log().info("New account " + user.trim() + " for " + name + " (" + savePlayerId + ")");
         return savePlayerId;
+    }
+
+    /**
+     * Whether this login would be let in, without making anything: the account's player id, null for a new
+     * account, or Refused. Also the title screen's check before a game is made for it (see client TitleJoin).
+     */
+    @SuppressWarnings("unchecked")
+    static synchronized String check(PlayerRegistry registry, String user, String password) throws Refused, JSONException {
+        if (user == null || !user.matches("[A-Za-z0-9 _.\\-]{1,32}")) throw new Refused("Pick a username: up to 32 letters, digits, spaces, '_', '.' or '-'");
+        if (password == null || password.isEmpty()) throw new Refused("Enter your password");
+        String stored = registry.get("account:" + user.trim().toLowerCase());
+        if (stored != null) {
+            BiFunction<String, String, String> hash = (BiFunction<String, String, String>) System.getProperties().get(HASH_KEY);
+            JSONObject account = new JSONObject(stored);
+            if (!hash.apply(account.getString("salt"), password).equals(account.getString("hash"))) throw new Refused("Wrong password for " + user);
+            return account.getString("player");
+        }
+        if (password.length() < MIN_PASSWORD) throw new Refused("New account: pick a password of at least " + MIN_PASSWORD + " characters");
+        return null;
     }
 }

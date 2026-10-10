@@ -73,7 +73,7 @@ Unlicense, as its developer stated (also in `LICENSE`).
 - The **server's game is the only authority on the world** (NPC fleets, clock, markets, economy); each **player's
   game is the authority on their own fleet, reputation and colonies**. Clients strip sector scripts while connected
   (`utils/SectorScriptsUtility`, keeps core-engine scripts and `BaseEventIntel` events) and show server-driven copies.
-- Protocol version 8 (`server/Server.PROTOCOL_VERSION`). Join: `welcome` (client id) -> client sends `hello` (permanent
+- Protocol version 9 (`server/Server.PROTOCOL_VERSION`). Join: `welcome` (client id) -> client sends `hello` (permanent
   player id from `utils/PlayerIdentity`, name) -> server reserves a player faction (`server/PlayerRegistry`, kept in
   the world save's persistent data) and replies `yourFaction`.
 - `server/Server` message dispatch (network threads; game work goes through `gameThreadTasks`). `server/ServerScripts`
@@ -120,11 +120,50 @@ Unlicense, as its developer stated (also in `LICENSE`).
   obfuscated `CampaignGameManager` loader (found by signature: static String (String, A, B) taking the session's
   "campaign state in session" twice), `AppDriver.goToState("Campaign State")`, as `TitleScreenState
   .dialogDismissed` does for its Load dialog (0.98a). Mods can't do it themselves (no reflection).
+- Login from the title screen (`client/TitleJoin`, protocol 9): CONNECT at the title screen runs
+  `Client.checkLoginFromTitle` (window thread): TLS, `welcome` (version and mods checked, not the seed: there's no
+  game yet), `checkLogin` {user, password} -> `loginChecked` {ok, reason} (server `Accounts.check`: nothing made,
+  nobody joined; a connection that never said hello isn't announced as leaving), disconnect. Next title frame
+  (`AutoLoadPlugin` -> `TitleJoin.titleFrame`, game thread): the save remembered for "<user>@<host>:<port>" in the
+  common file `multiplayer_logins.json` (written on `yourFaction`, i.e. every successful join, with its seed) loads
+  through the agent's `SaveLoader` if the agent's "multiplayer.findSave" (the game's own save list, by folder name)
+  still has it and the server's seed is the same; else the agent's `NewGameMaker` ("multiplayer.newGame") makes a
+  new game: `CampaignGameManager`'s static String (CharacterCreationData impl, CampaignState), found by signature
+  (names differ between the Windows and Linux builds), its data made with the impl's no-arg constructor and filled
+  by `TitleJoin.fill` through the API: name = username, first player-faction male portrait, the server's seed
+  string parsed as vanilla's options panel writes it (age Y/A/O/M, size S/N, "-", seed), and the stand-in start:
+  vanilla's mercenary start, normal difficulty, tutorial skipped (vanilla's own `NGCAddStandardStartingScript` run
+  with the agent's do-nothing InteractionDialogAPI proxy). Then `onGameLoad` -> `TitleJoin.gameLoaded`: the first
+  campaign frame calls `UI.join` (as CONNECT in a loaded game). Agent's "multiplayer.saveDirName" =
+  `CampaignEngine.getSaveDirName()` (chosen when the game is made).
 - Agent (`-javaagent`, added by the launcher): `NearestPlayer` (fleet spawning around every player),
   `FullRateLocations` (locations with a player run every frame; patches `CampaignEngine.advance`, 17 calls).
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
+- [ ] **Login from the title screen, no new-game screens (`TitleJoin`, protocol 9, untested in game).** Both games
+  need the new jars (mod and `launcher/MultiplayerAgent.jar`): close everything, then `Start Server Launcher.bat` ->
+  START SERVER, then START MY GAME. Checked outside the game: the login check against a real server (accounts,
+  mods, nothing joined), which game a login gets, the seed parsing (ss-scriptcheck `mptests/run.sh
+  TitleLoginTest`), and the agent's signatures against the Linux RC8 jar (`run-agent-test.sh AgentTitleTest`).
+  1. At the title screen, in the multiplayer window: JOIN MODE, IP, User, Password, CONNECT. Window log "Logged in
+     to <ip>:<port> as <user>: getting your game ready", then "No game of yours for ... making one from the
+     server's seed <seed>"; the game shows its sector generation screens and goes into the campaign by itself,
+     with no new-game dialog. Then it joins (the usual "CONNECTED SUCCESSFULLY", campaign log "Joined the
+     server..."), with no seed mismatch. The character is named after the user and starts at Corvus with the
+     mercenary fleet (Hammerhead, Drover, Centurion, Lasher, Dram, an officer) and 20,000 credits.
+  2. A wrong password, or a new username with a password under 6 characters: "Login refused: ..." in the window
+     log, and no game is made. A mod the server doesn't have: the usual mod list refusal, no game made.
+  3. Save the game, quit to the title screen, CONNECT again: "Loading your game for <ip>:<port> (<save path>)",
+     that save loads and joins. (Log "This game (save_<user>_...) is <user>'s for <ip>:<port>" on each join.)
+  4. Another username: a new game, not the first one's save.
+  5. If making the game fails: "Couldn't make a new game for <ip>: <why>" in the window log; send the logs.
+     Watch for anything from new-game scripts (vanilla's or the mods') that expected the dialog's choices.
+  6. Nexerelin: its new-game options stay at its defaults (logged as a warning): the server's world must have
+     been made with them, or the sector won't match (step 3 below: send Nexerelin's options).
+- [ ] **Encrypted connection could never have loaded (`b32b222`).** `SecureLink` caught `java.io
+  .UncheckedIOException`, which the game refuses to load for mods (not on its java.io allow list), so connecting
+  or hosting would have failed on loading it. Fixed; the tests below (encryption, accounts) need this build.
 - [ ] **Encrypted connection and accounts (`dba2603`, `094b692`, untested in game; TLS checked outside it).** Every
   game must be started by the launcher (the agent does the TLS): `Start Server Launcher.bat` -> START SERVER, then
   START MY GAME. A game started without it can't join an encrypted server (and logs that it isn't encrypted).
@@ -302,8 +341,11 @@ the players' games (results trusted, sanity-checked at best); colonies stay in t
    functions ("multiplayer.secureServerSocket", "multiplayer.secureSocket"). Without the agent: unencrypted.
 2. Accounts (done, `094b692`): username + password in the join window; the server keeps "account:<user>" ->
    player id, salt, PBKDF2 hash (agent `Passwords`), "accountOf:<player id>"; the account decides who you are.
-   Not yet: changing a password, the host's own client (exempt), login from the title screen (step 3).
-3. First join, no new-game screens (revised 2026-10-02, the user's idea): the player logs in from the title
+   Not yet: changing a password, the host's own client (exempt).
+3. First join, no new-game screens (done for vanilla, untested in game: `TitleJoin`, see Architecture; also loads
+   the player's save for that server when there is one, the login part of step 4). Left: Nexerelin's options
+   (below), choosing the character's gender and portrait (male, the first portrait for now). Plan (revised
+   2026-10-02, the user's idea): the player logs in from the title
    screen; the server sends its world's seed, game version/mods and Nexerelin's new-game options; the agent makes
    the new game itself, as the title screen does after its dialog (TitleScreenState.dialogDismissed, "Error
    creating new game" branch: CampaignEngine.resetInstance(), CampaignGameManager's (CharacterCreationData impl

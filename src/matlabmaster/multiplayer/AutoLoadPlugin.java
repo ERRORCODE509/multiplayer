@@ -4,6 +4,7 @@ import com.fs.starfarer.api.GameState;
 import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.combat.BaseEveryFrameCombatPlugin;
 import com.fs.starfarer.api.input.InputEventAPI;
+import matlabmaster.multiplayer.client.TitleJoin;
 
 import java.util.List;
 import java.util.function.Function;
@@ -13,7 +14,8 @@ import java.util.function.Function;
  * (-Dmultiplayer.autoLoadSave=<save folder>): nobody plays there, so nobody should have to click Load. The title
  * screen's background battle runs combat plugins every frame, which is the moment to do it from (the game's
  * thread, the title screen up); the multiplayer agent does the loading (SaveLoader: the mod can't), once.
- * Registered in data/config/settings.json; does nothing in any other game.
+ * Registered in data/config/settings.json; does nothing in any other game. Also where a player's login from the
+ * title screen gets its game loaded or made (TitleJoin), for the same reasons.
  */
 public class AutoLoadPlugin extends BaseEveryFrameCombatPlugin {
     public static final String SAVE_KEY = "multiplayer.autoLoadSave";
@@ -27,7 +29,9 @@ public class AutoLoadPlugin extends BaseEveryFrameCombatPlugin {
     @Override
     @SuppressWarnings("unchecked")
     public void advance(float amount, List<InputEventAPI> events) {
-        if (tried || Global.getCurrentState() != GameState.TITLE) return;
+        if (Global.getCurrentState() != GameState.TITLE) return;
+        TitleJoin.titleFrame();
+        if (tried) return;
         String save = System.getProperty(SAVE_KEY);
         if (save == null || save.isEmpty()) {
             tried = true;

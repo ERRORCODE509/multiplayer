@@ -32,7 +32,7 @@ import org.lwjgl.util.vector.Vector2f;
 
 public class Server {
     /** Bump whenever client and server messages change in a way an older version can't handle; checked on join. */
-    public static final int PROTOCOL_VERSION = 8; //2: the server's game is the only authority. 3: player factions, markets. 4: hello (player ids), colonies. 5: trade at colonies. 6: the world's debris on joining. 7: the world runs raids on players' colonies. 8: salvage, world owners, world markets, bounties
+    public static final int PROTOCOL_VERSION = 9; //2: the server's game is the only authority. 3: player factions, markets. 4: hello (player ids), colonies. 5: trade at colonies. 6: the world's debris on joining. 7: the world runs raids on players' colonies. 8: salvage, world owners, world markets, bounties. 9: login from the title screen (checkLogin)
 
     private int port;
     private ServerSocket serverSocket;
@@ -365,6 +365,10 @@ public class Server {
                     //handled here, before this client's next message: their fleet's faction depends on it
                     hello(clientId, json);
                     break;
+                case "checkLogin":
+                    //a player's title screen, before making or loading their game for this server: nothing is joined
+                    checkLogin(clientId, json);
+                    break;
                 case "colonies":
                     //the player's colonies as their game describes them (it runs them)
                     JSONArray colonies = json.getJSONArray("colonies");
@@ -532,6 +536,23 @@ public class Server {
         gameThreadTasks.add(() -> ownership.joined(clientId)); //who owns the world's markets now
     }
 
+    /**
+     * Would this account be let in (the title screen asks before making a game for it, see client TitleJoin)?
+     * "loginChecked" {ok, reason}; the account isn't made and nobody joins: the game that's made joins as usual.
+     */
+    private void checkLogin(String clientId, JSONObject json) throws JSONException {
+        JSONObject reply = new JSONObject().put("commandId", "loginChecked").put("ok", true);
+        if (Accounts.available()) {
+            try {
+                String playerId = Accounts.check(registry, json.optString("user", null), json.optString("password", null));
+                if (playerId != null && clientPlayers.containsValue(playerId)) throw new Accounts.Refused(json.optString("user") + " is already connected");
+            } catch (Accounts.Refused refused) {
+                reply.put("ok", false).put("reason", refused.getMessage());
+            }
+        }
+        sendTo(clientId, reply.toString());
+    }
+
     /** Who's connected, in this game's multiplayer window (null once it stops hosting). */
     private void showPlayers() {
         UI ui = MultiplayerModPlugin.getUI();
@@ -661,15 +682,19 @@ public class Server {
                 // read error often due to brutal connexion lost
             } finally {
                 closeConnection();
-                JSONObject packet = new JSONObject();
-                try {
-                    packet.put("commandId","playerLeft");
-                    packet.put("id",clientId);
-                    packet.put("name", who(clientId));
-                    broadcast(String.valueOf(packet));
-                    MultiplayerLog.log().info("[LEFT] " + who(clientId) + " (" + clientId + ")");
-                }catch (Exception e){
-                    MultiplayerLog.log().error("Failed to broadcast playerLeft of leaving player", e);
+                if (!clientNames.containsKey(clientId)) { //never joined (a title screen's login check, a refused login)
+                    MultiplayerLog.log().info(clientId + " disconnected");
+                } else {
+                    JSONObject packet = new JSONObject();
+                    try {
+                        packet.put("commandId","playerLeft");
+                        packet.put("id",clientId);
+                        packet.put("name", who(clientId));
+                        broadcast(String.valueOf(packet));
+                        MultiplayerLog.log().info("[LEFT] " + who(clientId) + " (" + clientId + ")");
+                    }catch (Exception e){
+                        MultiplayerLog.log().error("Failed to broadcast playerLeft of leaving player", e);
+                    }
                 }
                 clientNames.remove(clientId);
                 showPlayers();

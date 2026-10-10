@@ -6,6 +6,7 @@ import com.fs.starfarer.api.GameState;
 import com.fs.starfarer.api.Global;
 import matlabmaster.multiplayer.client.Client;
 import matlabmaster.multiplayer.client.ClientScripts;
+import matlabmaster.multiplayer.client.TitleJoin;
 import matlabmaster.multiplayer.listeners.MultiplayerWatchdog;
 import matlabmaster.multiplayer.server.Server;
 import matlabmaster.multiplayer.server.ServerScripts;
@@ -75,6 +76,8 @@ public class MultiplayerModPlugin extends BaseModPlugin {
         }
         Global.getSector().addTransientScript(serverScriptsInstance);
         MultiplayerLog.log().info("registered scripts");
+        //a login from the title screen made or loaded this game: it joins on its first campaign frame
+        TitleJoin.gameLoaded(uiInstance);
 
         if (SERVER_MODE && !serverInstance.isRunning) {
             //onGameLoad runs while the game still counts as the main menu (Server.start refuses that): host from the

@@ -19,9 +19,15 @@ import java.util.Objects;
 public class CompatibilityUtility {
 
     public static JSONObject describeThisGame() throws JSONException {
+        JSONObject game = describeThisInstall();
+        game.put("seed", Global.getSector().getSeedString());
+        return game;
+    }
+
+    /** The game version and mods, without a save's seed: at the title screen, before the game is made from the host's seed. */
+    public static JSONObject describeThisInstall() throws JSONException {
         JSONObject game = new JSONObject();
         game.put("version", Global.getSettings().getVersionString());
-        game.put("seed", Global.getSector().getSeedString());
         JSONObject mods = new JSONObject();
         for (ModSpecAPI mod : Global.getSettings().getModManager().getEnabledModsCopy()) {
             if (mod.isUtility()) continue;
@@ -40,7 +46,7 @@ public class CompatibilityUtility {
         if (!Objects.equals(host.optString("version"), mine.optString("version"))) {
             diffs.add("Game version: the host has " + host.optString("version") + ", you have " + mine.optString("version"));
         }
-        if (!Objects.equals(host.optString("seed"), mine.optString("seed"))) {
+        if (mine.has("seed") && !Objects.equals(host.optString("seed"), mine.optString("seed"))) {
             diffs.add("Save seed: the host's is " + host.optString("seed") + ", yours is " + mine.optString("seed")
                     + " (start a new game with the host's seed, and without devmode, which ignores the seed)");
         }
