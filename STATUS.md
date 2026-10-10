@@ -141,6 +141,10 @@ Unlicense, as its developer stated (also in `LICENSE`).
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
+- [ ] **Host settings (untested in game).** In the mod's `data/config/settings.json`, read when hosting starts:
+  `multiplayerMaxWaitingMessages` (5000: messages waiting for a player whose game stopped taking them, before
+  they're disconnected) and `multiplayerWelcomeTimeoutSeconds` (15: how long a new connection has to set up and be
+  greeted). Change one, host: a value below its least (100, 1 s) is logged and raised to it.
 - [ ] **Bug sweep (2026-10-10, untested in game; both jars changed).** Found by a review of the whole mod, each
   checked against the code and the game's jars; fixed:
   1. Loading a save or making a game from the title screen called `goToState` on `AppDriver`, which has none (it's

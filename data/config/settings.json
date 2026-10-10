@@ -7,4 +7,10 @@
 	"plugins":{
 		"multiplayerAutoLoad":"matlabmaster.multiplayer.AutoLoadPlugin",
 	},
+	# hosting: read when the server starts (restart hosting after changing them)
+	# a player whose game stops taking what the server sends (asleep, cut off) is disconnected once this many messages
+	# are waiting for them: about a minute or two of updates. Higher waits longer for bad connections, with more memory
+	"multiplayerMaxWaitingMessages":5000,
+	# a new connection has this long to set up encryption and be greeted, or it's dropped; longer for very slow links
+	"multiplayerWelcomeTimeoutSeconds":15,
 }

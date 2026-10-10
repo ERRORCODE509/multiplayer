@@ -122,6 +122,17 @@ public class Server {
     public final ServerOwnership ownership = new ServerOwnership(this);
     /** Connected players this game has no copy of the fleet of (game thread only), so it's only logged once. */
     private final Set<String> missingPlayerFleets = new HashSet<>();
+    /**
+     * How long a new connection has to set up encryption and take its welcome, in milliseconds; one that doesn't is
+     * dropped. The host's to set (multiplayerWelcomeTimeoutSeconds), read when hosting starts.
+     */
+    private volatile int welcomeTimeoutMs = 15000;
+    /**
+     * Messages waiting for a player whose game doesn't take them (asleep, cut off without a word), at most: a minute
+     * or so of updates. Past that they're disconnected rather than kept waiting for. The host's to set
+     * (multiplayerMaxWaitingMessages), read when hosting starts.
+     */
+    private volatile int maxWaiting = 5000;
     /** The host's game version, seed and mods, sent in every welcome so joiners can check they match. */
     private volatile JSONObject hostGame;
     /**
@@ -184,6 +195,8 @@ public class Server {
             throw new UserError("Couldn't read this game's version, seed and mods: " + e.getMessage());
         }
         registry.load(); //before anyone can join: who's who in this world
+        welcomeTimeoutMs = 1000 * hostSetting("multiplayerWelcomeTimeoutSeconds", 15, 1);
+        maxWaiting = hostSetting("multiplayerMaxWaitingMessages", 5000, 100);
         isRunning = true;
         threadPool = Executors.newCachedThreadPool();
 
@@ -230,6 +243,18 @@ public class Server {
                 else couldNotHost();
             }
         }, "Server-Main-Thread").start();
+    }
+
+    /**
+     * A number the host can change in the game's settings (the mod's data/config/settings.json has them, with what
+     * they do), at least min.
+     */
+    private static int hostSetting(String key, int fallback, int min) {
+        JSONObject settings = Global.getSettings().getSettingsJSON();
+        int value = settings == null ? fallback : settings.optInt(key, fallback);
+        if (value >= min) return value;
+        MultiplayerLog.log().warn("Setting " + key + " is " + value + ", below its least, " + min + ": " + min + " it is");
+        return min;
     }
 
     /** Whether it's taking connections yet (the port is open: the first time, making the certificate takes a while). */
@@ -674,13 +699,6 @@ public class Server {
     // --- INNER CLASS : GESTIONNAIRE DE CLIENT ---
 
     public class ClientHandler implements Runnable {
-        /** How long a new connection has to set up encryption and take its welcome; one that doesn't is dropped. */
-        private static final int WELCOME_TIMEOUT_MS = 15000;
-        /**
-         * Messages waiting for a player whose game doesn't take them (asleep, cut off without a word), at most: a
-         * minute or so of updates. Past that they're disconnected rather than kept waiting for.
-         */
-        private static final int MAX_WAITING = 5000;
         private final Socket socket;
         private final String clientId;
         private final PrintWriter out;
@@ -690,7 +708,7 @@ public class Server {
          * What's to be sent, which writeWaiting() sends on a thread of its own: the game thread sends to everyone
          * many times a second, and a write to a player who stopped reading would otherwise freeze the world.
          */
-        private final BlockingQueue<String> waiting = new LinkedBlockingQueue<>(MAX_WAITING);
+        private final BlockingQueue<String> waiting = new LinkedBlockingQueue<>(maxWaiting);
         /** Ends writeWaiting() once everything before it is sent (compared by identity, never sent). */
         private final String end = new String("end");
         /** Closed or being closed: nothing more is sent, nor what's read done. */
@@ -718,7 +736,7 @@ public class Server {
                 //first write waits for the other end to set it up, and one that never does mustn't hold up everyone
                 //else joining
                 //(straight to the socket: PrintWriter would keep a timeout to itself and carry on)
-                socket.setSoTimeout(WELCOME_TIMEOUT_MS);
+                socket.setSoTimeout(welcomeTimeoutMs);
                 try {
                     socket.getOutputStream().write((welcome + "\n").getBytes(StandardCharsets.UTF_8));
                     socket.getOutputStream().flush();
@@ -805,7 +823,7 @@ public class Server {
         public void sendMessage(String msg) {
             if (closed) return;
             if (!waiting.offer(msg)) {
-                MultiplayerLog.log().warn(who(clientId) + " isn't taking what's sent to them (" + MAX_WAITING + " messages waiting): disconnected");
+                MultiplayerLog.log().warn(who(clientId) + " isn't taking what's sent to them (" + maxWaiting + " messages waiting): disconnected");
                 forget();
                 //not on this thread (often the game's), in case closing has to wait on the write that's stuck
                 try {
