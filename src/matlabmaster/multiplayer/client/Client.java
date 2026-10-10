@@ -40,11 +40,11 @@ public class Client {
     /** The server joined last (connect()), so TitleJoin knows which server this game's save is for. */
     public volatile String host;
     public volatile int port;
-    /** The host's game, from its greeting: version, seed, mods (see CompatibilityUtility). */
-    private JSONObject hostGame;
     /** "Host current game": the server running in this same game, which the host's own client joins. */
     public Server localServer;
     public boolean wasPaused = false;
+    /** Our "paused" named what we're talking to: the server holds us (and it) for that dialog. */
+    public boolean heldForDialog = false;
     public UI ui;
     public String clientId;
     /** Our faction in the server's game and the other players' (mp_player_N), from its reply to our hello; see PlayerFactions. */
@@ -86,7 +86,10 @@ public class Client {
         //the server picks our id and sends it first; an id made from our own port number doesn't match the
         //server's behind a router (NAT)
         try {
-            clientId = readWelcome(false);
+            clientId = readWelcome(socket, in, false).getString("id");
+        } catch (JSONException e) {
+            try { socket.close(); } catch (IOException ignored) {}
+            throw new UserError("The server's greeting couldn't be read: " + e.getMessage());
         } catch (IOException | RuntimeException e) {
             try { socket.close(); } catch (IOException ignored) {}
             throw e;
@@ -111,21 +114,21 @@ public class Client {
      * The title screen's login (see TitleJoin): connects as joining does (encryption, the greeting, the same game
      * version and mods), asks the server whether this account would be let in, and disconnects. Nothing is joined:
      * the game made or loaded for it joins afterwards, as usual. Returns the host's seed; a UserError if refused.
-     * Not on the game thread (the window's).
+     * Not on the game thread (the window's). Its own connection, not this client's: it's not joining.
      */
-    public String checkLoginFromTitle(String ip, int port) throws IOException {
+    public String checkLoginFromTitle(String ip, int port, String user, String password) throws IOException {
         if (isConnected) throw new UserError("Already connected to a server");
-        socket = SecureLink.socket(ip, port);
+        Socket socket = SecureLink.socket(ip, port);
         try {
             if (!socket.isConnected()) socket.connect(new InetSocketAddress(ip, port), 5000);
-            out = new PrintWriter(socket.getOutputStream(), true, StandardCharsets.UTF_8);
-            in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
-            readWelcome(true);
+            PrintWriter out = new PrintWriter(socket.getOutputStream(), true, StandardCharsets.UTF_8);
+            BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+            JSONObject hostGame = readWelcome(socket, in, true).getJSONObject("game");
             JSONObject check = new JSONObject();
             check.put("commandId", "checkLogin");
             check.put("user", user); //over the encrypted connection, as the hello
             check.put("password", password);
-            send(check.toString());
+            out.println(check.toString());
             //the world's updates can come first (the server sends them to every connection): only the answer counts
             socket.setSoTimeout(15000);
             String line;
@@ -234,10 +237,11 @@ public class Client {
     }
 
     /**
-     * Waits for the server's "welcome" (our id and its protocol version); a clear error if it never comes or doesn't
-     * match. From the title screen there's no save yet, so no seed to compare: the game is made from the host's.
+     * Waits for the server's "welcome" (our id, its protocol version and game), and returns it; a clear error if it
+     * never comes or doesn't match. From the title screen there's no save yet, so no seed to compare: the game is
+     * made from the host's.
      */
-    private String readWelcome(boolean fromTitle) throws IOException {
+    private static JSONObject readWelcome(Socket socket, BufferedReader in, boolean fromTitle) throws IOException {
         String line;
         try {
             socket.setSoTimeout(5000);
@@ -261,13 +265,14 @@ public class Client {
             if (!welcome.has("game")) {
                 throw new UserError("The server didn't say which game it runs; both players need the same version of the mod");
             }
-            hostGame = welcome.getJSONObject("game");
+            JSONObject hostGame = welcome.getJSONObject("game");
             JSONObject mine = fromTitle ? CompatibilityUtility.describeThisInstall() : CompatibilityUtility.describeThisGame();
             List<String> diffs = CompatibilityUtility.differences(hostGame, mine);
             if (!diffs.isEmpty()) {
                 throw new UserError("Can't join: this game doesn't match the host's.\n  - " + String.join("\n  - ", diffs));
             }
-            return welcome.getString("id");
+            welcome.getString("id");
+            return welcome;
         } catch (JSONException e) {
             throw new UserError("The server's greeting couldn't be read: " + e.getMessage());
         }

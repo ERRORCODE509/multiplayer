@@ -21,6 +21,7 @@ import matlabmaster.multiplayer.updates.FleetSync;
 import matlabmaster.multiplayer.updates.WorldSync;
 import matlabmaster.multiplayer.utils.*;
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
@@ -69,6 +70,11 @@ public class ClientScripts implements EveryFrameScript {
     private float clockCorrectedDays = 0f;
     /** Whether this game has mirrors of other players' colonies, from the server: removed on leaving it. */
     private boolean hasMirrors = false;
+    /**
+     * Why the server refused our login (network thread). It closes the connection right after saying so, and
+     * disconnecting empties the message queue, so the reason is kept here to be shown once we're disconnected.
+     */
+    private volatile String refusal = null;
 
     // Message waitlist coming from client thread
     private static final ConcurrentLinkedQueue<JSONObject> messageQueue = new ConcurrentLinkedQueue<>();
@@ -88,7 +94,9 @@ public class ClientScripts implements EveryFrameScript {
             public void onMessageReceived(String msg) {
                 try {
                     // Transform msg to JSON and add it to the queue
-                    messageQueue.add(new JSONObject(msg));
+                    JSONObject json = new JSONObject(msg);
+                    if ("loginRefused".equals(json.optString("commandId"))) refusal = json.optString("reason");
+                    messageQueue.add(json);
                 } catch (Exception e) {
                     MultiplayerLog.log().error("JSON FORMAT ERROR: " + e.getMessage());
                 }
@@ -113,6 +121,12 @@ public class ClientScripts implements EveryFrameScript {
         if (client == null || !client.isConnected()) {
             //put back any sector scripts taken out while we were not the authority, so they are not lost
             sectorScriptsUtility.restoreScripts();
+            String refused = refusal;
+            if (refused != null) {
+                refusal = null;
+                MultiplayerLog.log().error("The server refused the login: " + refused);
+                notify("Login refused: " + refused);
+            }
             if (factionSent != null) { //just disconnected: nobody else is here any more
                 PlayerFactions.hideAll();
                 int copies = FleetHelper.removePlayerCopies();
@@ -135,6 +149,7 @@ public class ClientScripts implements EveryFrameScript {
             }
             if (client != null && client.wasPaused) { //left in a dialog: never told the server, nobody to tell now
                 client.wasPaused = false;
+                client.heldForDialog = false;
                 PauseUtility.clearPausedName();
             }
             if (hasMirrors) {
@@ -145,8 +160,17 @@ public class ClientScripts implements EveryFrameScript {
         }
         //finish joining here, on the game thread, before any received message is processed
         if (client.isJoinPending()) {
+            refusal = null; //an earlier session's
             client.completeJoin();
             if (!client.isConnected()) return;
+            //our fleet as the server was just sent it: the next update only has what changes after (a diff against
+            //how it was when we last left would add again ships the server's copy already has)
+            try {
+                fleetSync.resetOwnFleet(FleetSerializer.serializeFleet(Global.getSector().getPlayerFleet()));
+            } catch (JSONException e) {
+                MultiplayerLog.log().error("Couldn't read our fleet: the first update sends all of it", e);
+                fleetSync.resetOwnFleet(new JSONObject());
+            }
             factionSent = null; //a new server knows nothing of us yet
             coloniesSent = null;
             debrisKnown.clear();
@@ -336,7 +360,9 @@ public class ClientScripts implements EveryFrameScript {
                     for (Iterator<?> it = fields.keys(); it.hasNext(); ) {
                         String id = (String) it.next();
                         if (!client.isSelfHosted) DebrisSync.apply(id, fields.getJSONObject(id));
-                        debrisKnown.add(id);
+                        //only if it's here now: one that couldn't be added (a location this game doesn't have) would
+                        //be "gone" at the next check, and taken from the world and from the game that made it
+                        if (client.isSelfHosted || DebrisSync.exists(id)) debrisKnown.add(id);
                     }
                     break;
                 }
@@ -347,16 +373,21 @@ public class ClientScripts implements EveryFrameScript {
                     JSONObject fields = message.getJSONObject("fields");
                     Set<String> ids = new HashSet<>();
                     for (Iterator<?> it = fields.keys(); it.hasNext(); ) ids.add((String) it.next());
-                    int removed = DebrisSync.removeReceivedExcept(ids);
-                    for (String id : ids) DebrisSync.apply(id, fields.getJSONObject(id));
-                    debrisKnown.addAll(ids);
+                    //not the ones this session already sent or got: the world's list can be from just before our
+                    //own fields reached it
+                    Set<String> keep = new HashSet<>(ids);
+                    keep.addAll(debrisKnown);
+                    int removed = DebrisSync.removeReceivedExcept(keep);
+                    for (String id : ids) {
+                        DebrisSync.apply(id, fields.getJSONObject(id));
+                        if (DebrisSync.exists(id)) debrisKnown.add(id); //as debrisFields
+                    }
                     MultiplayerLog.log().info("The world has " + ids.size() + " battle debris fields" + (removed > 0 ? "; removed " + removed + " gone since we were last here" : ""));
                     break;
                 }
                 case "loginRefused":
-                    //wrong password, a username taken, ...: the server closes the connection
-                    MultiplayerLog.log().error("The server refused the login: " + message.optString("reason"));
-                    notify("Login refused: " + message.optString("reason"));
+                    //wrong password, a username taken, ...: the server closes the connection. Shown once disconnected
+                    //(see refusal), which is usually before this frame
                     break;
                 case "worldBounties":
                     if (!client.isSelfHosted) bountyBoard.listed(message.getJSONArray("bounties"));
@@ -501,7 +532,9 @@ public class ClientScripts implements EveryFrameScript {
                             && !Global.getSector().getCampaignUI().isShowingDialog()) {
                         opened = Global.getSector().getCampaignUI().showInteractionDialog(fleet);
                     }
-                    if (!opened) { //the server holds us both until we answer: let go
+                    //the server holds us both until we answer: let go, unless it holds us for a dialog of ours instead
+                    //(our "paused" replaced its hold for the interception), which this would cancel
+                    if (!opened && !(client.wasPaused && client.heldForDialog)) {
                         JSONObject release = new JSONObject();
                         release.put("commandId", "unpaused");
                         client.send(release.toString());

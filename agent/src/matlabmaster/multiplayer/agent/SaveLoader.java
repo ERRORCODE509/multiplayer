@@ -49,7 +49,9 @@ public class SaveLoader implements Function<String, String> {
             load.setAccessible(true);
             Object error = load.invoke(null, saveDir, campaignState, campaignState);
             if (error != null) return String.valueOf(error);
-            driverClass.getMethod("goToState", String.class).invoke(driver, "Campaign State");
+            //as the title screen does: goToState is the current state's (AppState), not the driver's
+            Object title = driverClass.getMethod("getCurrentState").invoke(driver);
+            Class.forName("com.fs.state.AppState").getMethod("goToState", String.class).invoke(title, "Campaign State");
             return null;
         } catch (Throwable t) {
             return t.toString();

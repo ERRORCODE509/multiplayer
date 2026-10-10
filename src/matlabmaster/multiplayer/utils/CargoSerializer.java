@@ -82,12 +82,15 @@ public class CargoSerializer {
                 String type = itemData.getString("type");
 
                 syncItemStack(cargo, key, itemData, type, targetQty);
+            } else if (delta instanceof JSONObject nested && nested.optJSONObject("quantity") != null) {
+                //a stack on both sides whose quantity changed: the diff went into it, so only that field is there
+                setStackSize(cargo, key, (float) nested.getJSONObject("quantity").getDouble("value"));
             }
         }
     }
 
     private static void syncItemStack(CargoAPI cargo, String key, JSONObject data, String type, float targetQty) throws JSONException {
-        float currentQty = getQuantityByKey(cargo, key, type);
+        float currentQty = getQuantityByKey(cargo, key, data, type);
         float diff = targetQty - currentQty;
 
         if (diff == 0) return;
@@ -108,25 +111,34 @@ public class CargoSerializer {
         }
     }
 
-    private static float getQuantityByKey(CargoAPI cargo, String key, String type) {
+    private static float getQuantityByKey(CargoAPI cargo, String key, JSONObject data, String type) throws JSONException {
         if (type.equals("RESOURCES")) return cargo.getCommodityQuantity(key);
         if (type.equals("WEAPONS")) return cargo.getQuantity(CargoAPI.CargoItemType.WEAPONS, key);
         if (type.equals("FIGHTER_CHIP")) return cargo.getQuantity(CargoAPI.CargoItemType.FIGHTER_CHIP, key);
-        // Special items need exact match
-        return cargo.getQuantity(CargoAPI.CargoItemType.SPECIAL, key);
+        // Special items need exact match: their stacks' data is a SpecialItemData, never equal to the key's string
+        SpecialItemData spec = new SpecialItemData(data.getString("specialId"), data.optString("specialData", null));
+        return cargo.getQuantity(CargoAPI.CargoItemType.SPECIAL, spec);
+    }
+
+    /** The stack's key in serializeCargoToMap's map. */
+    private static String stackKey(CargoStackAPI stack) {
+        if (stack.isCommodityStack()) return stack.getCommodityId();
+        if (stack.isWeaponStack()) return stack.getWeaponSpecIfWeapon().getWeaponId();
+        if (stack.isFighterWingStack()) return stack.getFighterWingSpecIfWing().getId();
+        if (stack.isSpecialStack()) return stack.getSpecialDataIfSpecial().getId() + "_" + stack.getSpecialDataIfSpecial().getData();
+        return "";
     }
 
     private static void removeStackByKey(CargoAPI cargo, String key) {
-        // Find the specific stack and set to 0 to trigger removal
-        for (CargoStackAPI stack : cargo.getStacksCopy()) {
-            String stackKey = "";
-            if (stack.isCommodityStack()) stackKey = stack.getCommodityId();
-            else if (stack.isWeaponStack()) stackKey = stack.getWeaponSpecIfWeapon().getWeaponId();
-            else if (stack.isFighterWingStack()) stackKey = stack.getFighterWingSpecIfWing().getId();
-            else if (stack.isSpecialStack()) stackKey = stack.getSpecialDataIfSpecial().getId() + "_" + stack.getSpecialDataIfSpecial().getData();
+        setStackSize(cargo, key, 0);
+    }
 
-            if (key.equals(stackKey)) {
-                stack.setSize(0);
+    /** The stack of this key gets this size (0 removes it); any other stack of the same key goes (the map has one per key). */
+    private static void setStackSize(CargoAPI cargo, String key, float size) {
+        for (CargoStackAPI stack : cargo.getStacksCopy()) {
+            if (key.equals(stackKey(stack))) {
+                stack.setSize(size);
+                size = 0;
             }
         }
         cargo.removeEmptyStacks();

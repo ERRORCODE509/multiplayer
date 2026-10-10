@@ -135,9 +135,12 @@ public class ServerFactionSync {
             boolean connected = server.clientFactions.containsValue(faction.getKey());
             server.sendTo(clientId, lookPacket(faction.getKey(), server.registry.look(faction.getKey()), connected).toString());
         }
+        String joiner = server.clientPlayers.get(clientId);
         for (String player : server.registry.playersWithColonies()) {
             String faction = server.registry.faction(player);
-            if (faction == null) continue;
+            //not their own, which their game runs: a game made from another save of their account would mirror them
+            //as someone else's
+            if (faction == null || player.equals(joiner)) continue;
             server.sendTo(clientId, coloniesPacket(player, faction, server.registry.colonies(player)).toString());
         }
     }

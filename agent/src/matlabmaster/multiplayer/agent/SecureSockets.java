@@ -46,6 +46,7 @@ public class SecureSockets {
     static final Path KNOWN_FILE = Paths.get("multiplayer-known-servers.properties");
     private static final String[] PROTOCOLS = {"TLSv1.3"};
     private static final int CONNECT_TIMEOUT_MS = 5000;
+    private static final int HANDSHAKE_TIMEOUT_MS = 15000;
 
     static void install() {
         System.getProperties().put(SERVER_KEY, (Function<Integer, ServerSocket>) SecureSockets::server);
@@ -95,16 +96,21 @@ public class SecureSockets {
     }
 
     static Socket client(String host, Integer port) {
+        Socket plain = new Socket();
         try {
             SSLContext context = SSLContext.getInstance("TLSv1.3");
             context.init(null, new TrustManager[] {new PinningTrust(host + ":" + port)}, new SecureRandom());
-            Socket plain = new Socket();
             plain.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
+            //a server that takes the connection and never answers (stuck, or not a multiplayer server) mustn't keep
+            //the player waiting forever
+            plain.setSoTimeout(HANDSHAKE_TIMEOUT_MS);
             SSLSocket socket = (SSLSocket) context.getSocketFactory().createSocket(plain, host, port, true);
             socket.setEnabledProtocols(PROTOCOLS);
             socket.startHandshake(); //here, so a refused certificate is this call's error, with its reason
+            socket.setSoTimeout(0);
             return socket;
         } catch (Exception e) {
+            try { plain.close(); } catch (IOException ignored) {}
             Throwable reason = e;
             while (reason.getCause() != null && !(reason instanceof CertificateException)) reason = reason.getCause();
             throw new UncheckedIOException(new IOException(reason instanceof CertificateException ? reason.getMessage()

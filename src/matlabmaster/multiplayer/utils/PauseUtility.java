@@ -44,6 +44,7 @@ public class PauseUtility {
                     //fleet by a planet or station as this game does
                     if (target != null && target != Global.getSector().getPlayerFleet() && target.getId() != null) {
                         packet.put("interactionTarget", target.getId());
+                        client.heldForDialog = true;
                         packet.put("targetX", target.getLocation().x);
                         packet.put("targetY", target.getLocation().y);
                         //and where we are: our fleet stops there in the server's game too (we send no movement meanwhile)
@@ -62,6 +63,7 @@ public class PauseUtility {
             }else{
                 if(client.wasPaused){
                     client.wasPaused = false;
+                    client.heldForDialog = false;
                     JSONObject packet = new JSONObject();
                     packet.put("commandId","unpaused");
                     clearPausedName();

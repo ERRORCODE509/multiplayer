@@ -183,7 +183,7 @@ public class FleetSerializer {
                 String action = obj.getString("action");
                 if ("REMOVED".equals(action) && member != null) {
                     fleet.getFleetData().removeFleetMember(member);
-                } else if ("ADDED".equals(action)) {
+                } else if ("ADDED".equals(action) && member == null) { //never twice: the copy can have it already
                     FleetMemberAPI newMember = unSerializeFleetMember(obj.getJSONObject("value"));
                     newMember.setId(shipId);
                     fleet.getFleetData().addFleetMember(newMember);

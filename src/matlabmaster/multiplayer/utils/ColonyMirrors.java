@@ -67,9 +67,12 @@ public class ColonyMirrors {
             for (Industry industry : market.getIndustries()) {
                 JSONObject entry = new JSONObject();
                 entry.put("id", industry.getId());
-                entry.put("building", industry.isBuilding());
+                //an upgrade isn't building: the industry works until it's done (as vanilla's), and the upgraded one
+                //then replaces it in the list. Starting the build over in the copy would stop it working
+                boolean building = industry.isBuilding() && !industry.isUpgrading();
+                entry.put("building", building);
                 //how far along, in whole days: the world's copy shows this, not its own progress
-                if (industry.isBuilding()) entry.put("progress", Math.round(industry.getBuildOrUpgradeProgress() * industry.getBuildTime()));
+                if (building) entry.put("progress", Math.round(industry.getBuildOrUpgradeProgress() * industry.getBuildTime()));
                 industries.put(entry);
             }
             colony.put("industries", industries);
@@ -370,6 +373,9 @@ public class ColonyMirrors {
             MultiplayerLog.log().info("Removed the mirror of " + mirror.getName() + " (destroyed)");
             return;
         }
+        //its industries go first, as vanilla's decivilizing does: a station takes its entity and station fleet with it,
+        //which would otherwise stay in the location with no market behind them
+        for (Industry industry : new ArrayList<>(mirror.getIndustries())) mirror.removeIndustry(industry.getId(), null, false);
         if (mirror.isInEconomy()) Global.getSector().getEconomy().removeMarket(mirror);
         SectorEntityToken planet = mirror.getPrimaryEntity();
         MemoryAPI memory = mirror.getMemoryWithoutUpdate();

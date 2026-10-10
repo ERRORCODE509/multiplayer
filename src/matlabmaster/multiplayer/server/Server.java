@@ -35,7 +35,7 @@ public class Server {
     public static final int PROTOCOL_VERSION = 9; //2: the server's game is the only authority. 3: player factions, markets. 4: hello (player ids), colonies. 5: trade at colonies. 6: the world's debris on joining. 7: the world runs raids on players' colonies. 8: salvage, world owners, world markets, bounties. 9: login from the title screen (checkLogin)
 
     private int port;
-    private ServerSocket serverSocket;
+    private volatile ServerSocket serverSocket;
     public volatile boolean isRunning = false; // volatile to ensure visibility between threads
     public final ConcurrentHashMap<String, ClientHandler> clients = new ConcurrentHashMap<>();
     private ExecutorService threadPool;
@@ -188,47 +188,63 @@ public class Server {
         threadPool = Executors.newCachedThreadPool();
 
         new Thread(() -> {
+            boolean opened = false;
             try {
                 serverSocket = SecureLink.serverSocket(port); //encrypted when the multiplayer agent runs
+                opened = true;
                 MultiplayerLog.log().info("Server started on port " + port);
 
                 while (isRunning) {
                     try {
                         Socket socket = serverSocket.accept();
-                        if (!isRunning) break; // safety if stop() is called on accept
+                        if (!isRunning) { // safety if stop() is called on accept
+                            socket.close();
+                            break;
+                        }
 
                         //the server picks the id and sends it first ("welcome"): ids made from port numbers don't
                         //match on both ends behind a router (NAT), and two machines can use the same local port
                         String clientId = newClientId();
-                        ClientHandler handler = new ClientHandler(socket, clientId, this);
+                        JSONObject welcome = new JSONObject();
                         try {
-                            JSONObject welcome = new JSONObject();
                             welcome.put("commandId","welcome");
                             welcome.put("id",clientId);
                             welcome.put("protocol",PROTOCOL_VERSION);
                             welcome.put("game",hostGame);
-                            handler.sendMessage(welcome.toString());
                         } catch (JSONException e) {
                             MultiplayerLog.log().error("failed to welcome " + clientId, e);
-                            handler.closeConnection();
+                            socket.close();
                             continue;
                         }
-                        clients.put(clientId, handler);
-
-                        //announced as they join, by name, once their game has said who they are (hello)
-                        MultiplayerLog.log().info(clientId + " connected");
-                        threadPool.execute(handler);
+                        //the handler sends it, on its own thread: nothing here waits for a new connection (see run())
+                        threadPool.execute(new ClientHandler(socket, clientId, this, welcome.toString()));
 
                     } catch (IOException e) {
                         if (isRunning) MultiplayerLog.log().error("Accept : " + e.getMessage());
                     }
                 }
-            } catch (IOException e) {
-                if (isRunning) MultiplayerLog.log().error("Port " + port + " unavailable.");
+            } catch (IOException | RuntimeException e) {
+                if (isRunning) MultiplayerLog.log().error((opened ? "The server stopped: " : "Couldn't host on port " + port + ": ") + e.getMessage());
             } finally {
-                internalStop();
+                if (opened) internalStop();
+                else couldNotHost();
             }
         }, "Server-Main-Thread").start();
+    }
+
+    /** Whether it's taking connections yet (the port is open: the first time, making the certificate takes a while). */
+    public boolean isListening() {
+        ServerSocket socket = serverSocket;
+        return isRunning && socket != null && !socket.isClosed();
+    }
+
+    /** The port couldn't be opened: not hosting after all, which the window and the server instance must see. */
+    private synchronized void couldNotHost() {
+        if (!isRunning) return; //stopped meanwhile
+        isRunning = false;
+        if (threadPool != null) threadPool.shutdownNow();
+        showPlayers();
+        if (listener != null) listener.onServerStopped();
     }
 
     public synchronized void stop() {
@@ -491,16 +507,13 @@ public class Server {
                 playerId = Accounts.login(registry, json.optString("user", null), json.optString("password", null), playerId, name);
             } catch (Accounts.Refused refused) {
                 MultiplayerLog.log().warn(name + " (" + clientId + ") couldn't log in: " + refused.getMessage());
-                sendTo(clientId, new JSONObject().put("commandId", "loginRefused").put("reason", refused.getMessage()).toString());
-                ClientHandler handler = clients.get(clientId);
-                if (handler != null) handler.closeConnection();
+                refuse(clientId, refused.getMessage());
                 return;
             }
         }
         if (clientPlayers.containsValue(playerId)) {
             MultiplayerLog.log().warn(name + " (" + playerId + ") is already connected: refused " + clientId + " (the same save in two games?)");
-            ClientHandler handler = clients.get(clientId);
-            if (handler != null) handler.closeConnection();
+            refuse(clientId, name + " is already connected");
             return;
         }
         clientPlayers.put(clientId, playerId);
@@ -534,6 +547,14 @@ public class Server {
         raids.joined(clientId, playerId); //how the world's raids on their colonies went while they were away
         entities.joined(clientId); //what was salvaged in the world so far
         gameThreadTasks.add(() -> ownership.joined(clientId)); //who owns the world's markets now
+    }
+
+    /** Tells a joining player why they can't join, then disconnects them once that's sent. */
+    private void refuse(String clientId, String reason) throws JSONException {
+        ClientHandler handler = clients.get(clientId);
+        if (handler == null) return;
+        handler.sendMessage(new JSONObject().put("commandId", "loginRefused").put("reason", reason).toString());
+        handler.closeAfterSending();
     }
 
     /**
@@ -653,16 +674,35 @@ public class Server {
     // --- INNER CLASS : GESTIONNAIRE DE CLIENT ---
 
     public class ClientHandler implements Runnable {
+        /** How long a new connection has to set up encryption and take its welcome; one that doesn't is dropped. */
+        private static final int WELCOME_TIMEOUT_MS = 15000;
+        /**
+         * Messages waiting for a player whose game doesn't take them (asleep, cut off without a word), at most: a
+         * minute or so of updates. Past that they're disconnected rather than kept waiting for.
+         */
+        private static final int MAX_WAITING = 5000;
         private final Socket socket;
         private final String clientId;
-        private PrintWriter out;
+        private final PrintWriter out;
         private final Server server;
+        private final String welcome;
+        /**
+         * What's to be sent, which writeWaiting() sends on a thread of its own: the game thread sends to everyone
+         * many times a second, and a write to a player who stopped reading would otherwise freeze the world.
+         */
+        private final BlockingQueue<String> waiting = new LinkedBlockingQueue<>(MAX_WAITING);
+        /** Ends writeWaiting() once everything before it is sent (compared by identity, never sent). */
+        private final String end = new String("end");
+        /** Closed or being closed: nothing more is sent, nor what's read done. */
+        private volatile boolean closed = false;
+        /** Closing once what's waiting is sent, gently (see endGently). */
+        private volatile boolean endAfterSending = false;
 
-        public ClientHandler(Socket socket, String clientId, Server server) throws IOException {
+        public ClientHandler(Socket socket, String clientId, Server server, String welcome) throws IOException {
             this.socket = socket;
             this.clientId = clientId;
             this.server = server;
-            //created here rather than in run() so the welcome, and anything broadcast before run() starts, isn't lost.
+            this.welcome = welcome;
             //UTF-8 to match the reader on the other end (Java 17's default on Windows is not UTF-8). Not through an
             //OutputStreamWriter: the game refuses to load java.io classes outside a short allowed list for mods
             this.out = new PrintWriter(socket.getOutputStream(), true, StandardCharsets.UTF_8);
@@ -671,17 +711,44 @@ public class Server {
         @Override
         public void run() {
             Thread.currentThread().setContextClassLoader(Server.class.getClassLoader());
-            try (BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))) {
+            //not closed when reading ends (closing it closes the socket): a refusal may still be waiting to be sent
+            try {
+                BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+                //the welcome first, here rather than on the thread that accepts connections: on an encrypted one, the
+                //first write waits for the other end to set it up, and one that never does mustn't hold up everyone
+                //else joining
+                //(straight to the socket: PrintWriter would keep a timeout to itself and carry on)
+                socket.setSoTimeout(WELCOME_TIMEOUT_MS);
+                try {
+                    socket.getOutputStream().write((welcome + "\n").getBytes(StandardCharsets.UTF_8));
+                    socket.getOutputStream().flush();
+                } catch (IOException e) {
+                    MultiplayerLog.log().info(clientId + " connected but didn't set up the connection: dropped (" + e.getMessage() + ")");
+                    return;
+                }
+                socket.setSoTimeout(0); //nothing was read yet, so no read is left waiting with the timeout
+                //only now, so nothing else can be sent before the welcome
+                clients.put(clientId, this);
+                if (!server.isRunning) return; //stopped meanwhile (it closed the ones it had)
+                //announced as they join, by name, once their game has said who they are (hello)
+                MultiplayerLog.log().info(clientId + " connected");
+                threadPool.execute(this::writeWaiting);
 
                 String input;
                 // La boucle s'arrête si le client coupe (input == null) OU si le serveur s'arrête
                 while (server.isRunning && (input = in.readLine()) != null) {
-                    server.processIncomingMessage(clientId, input);
+                    //once closed, read to the end without doing anything: closing a connection with what they sent
+                    //still unread would reset it, losing what was just sent to them (a refusal's reason)
+                    if (!closed) server.processIncomingMessage(clientId, input);
                 }
-            } catch (IOException e) {
+            } catch (IOException | RejectedExecutionException e) {
                 // read error often due to brutal connexion lost
             } finally {
-                closeConnection();
+                //closed already: by the server, or once what's waiting is sent (a refusal), which this mustn't drop
+                if (!closed) closeConnection();
+                //what joining (hello, on this thread) adds may come after the connection was closed elsewhere (a
+                //write that failed): taken out here too, or that player would be "already connected" for good
+                forgetPlayer();
                 if (!clientNames.containsKey(clientId)) { //never joined (a title screen's login check, a refused login)
                     MultiplayerLog.log().info(clientId + " disconnected");
                 } else {
@@ -701,31 +768,96 @@ public class Server {
             }
         }
 
-        public void sendMessage(String msg) {
-            if (out != null && !socket.isClosed()) {
-                out.println(msg);
+        /** Sends what's waiting, in order, until the connection closes. */
+        private void writeWaiting() {
+            boolean allSent = false;
+            try {
+                for (String message = waiting.take(); ; message = waiting.take()) {
+                    if (message == end) {
+                        allSent = true;
+                        break;
+                    }
+                    out.println(message);
+                    if (out.checkError()) break; //the connection is gone
+                }
+            } catch (InterruptedException e) {
+                // the server stopping
+            } finally {
+                if (allSent && endAfterSending) endGently();
+                else closeConnection();
             }
         }
 
-        public void closeConnection() {
-            clients.remove(clientId);
-            interactions.remove(clientId); //a player who left isn't talking to anyone
-            clientPlayers.remove(clientId);
-            String faction = clientFactions.remove(clientId);
-            if (faction != null) gameThreadTasks.add(() -> factionSync.freed(faction)); //for the next player
-            if (clientId.equals(localClientId)) localClientId = null;
-            if (dedicated) { //remove this game's copy of their fleet
-                pendingPlayerSnapshots.remove(clientId);
-                gameThreadTasks.add(() -> FleetHelper.removeFleetById(clientId));
+        /**
+         * Their game is told it's the end (the reason it was sent is read first), and closes the connection; if it
+         * doesn't, it's closed a few seconds later.
+         */
+        private void endGently() {
+            try {
+                socket.shutdownOutput();
+                Thread.sleep(5000);
+            } catch (IOException | InterruptedException e) {
+                // closed meanwhile
             }
+            closeConnection();
+        }
 
+        public void sendMessage(String msg) {
+            if (closed) return;
+            if (!waiting.offer(msg)) {
+                MultiplayerLog.log().warn(who(clientId) + " isn't taking what's sent to them (" + MAX_WAITING + " messages waiting): disconnected");
+                forget();
+                //not on this thread (often the game's), in case closing has to wait on the write that's stuck
+                try {
+                    threadPool.execute(this::closeConnection);
+                } catch (RejectedExecutionException e) {
+                    closeConnection(); //the server is stopping: no other thread to do it
+                }
+            }
+        }
+
+        /** Closes the connection once what was sent to them so far is (a refused login's reason). */
+        public void closeAfterSending() {
+            endAfterSending = true;
+            forget();
+            if (!waiting.offer(end)) closeConnection();
+        }
+
+        public void closeConnection() {
+            forget();
+            waiting.clear();
+            waiting.offer(end); //for writeWaiting(), which may be waiting for more
             try {
                 if (socket != null && !socket.isClosed()) {
+                    //at once, unsent data dropped: an encrypted connection's close otherwise waits for a write stuck
+                    //on a player who doesn't read, which is what this is often closing
+                    socket.setSoLinger(true, 0);
                     socket.close();
                 }
             } catch (IOException e) {
                 // Déjà fermé
             }
+        }
+
+        /** No longer a player here: nothing more is sent to them, and they're out of every list. */
+        private synchronized void forget() {
+            if (closed) return;
+            closed = true;
+            clients.remove(clientId, this);
+            interactions.remove(clientId); //a player who left isn't talking to anyone
+            forgetPlayer();
+            if (clientId.equals(localClientId)) localClientId = null;
+            if (dedicated) { //remove this game's copy of their fleet
+                pendingPlayerSnapshots.remove(clientId);
+                gameThreadTasks.add(() -> FleetHelper.removeFleetById(clientId));
+            }
+        }
+
+        /** Who they were in this world (their player and faction): free for their next connection, or the next player. */
+        private void forgetPlayer() {
+            clientPlayers.remove(clientId);
+            String faction = clientFactions.remove(clientId);
+            if (faction != null) gameThreadTasks.add(() -> factionSync.freed(faction)); //for the next player
         }
     }
 

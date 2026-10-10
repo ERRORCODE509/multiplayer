@@ -51,9 +51,10 @@ public class PlayerRegistry {
         data.put("name:" + playerId, name);
         String faction = data.get("faction:" + playerId);
         if (faction != null) return faction;
+        Map<String, String> taken = factions(); //not any value: a name or username can be "mp_player_1" too
         for (int i = 1; i <= PlayerFactions.SLOT_COUNT; i++) {
             String slot = PlayerFactions.slotId(i);
-            if (!data.containsValue(slot)) {
+            if (!taken.containsKey(slot)) {
                 data.put("faction:" + playerId, slot);
                 MultiplayerLog.log().info("New player " + name + " (" + playerId + "): their faction is " + slot);
                 return slot;

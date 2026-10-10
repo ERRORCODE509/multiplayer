@@ -44,7 +44,9 @@ public class NewGameMaker implements Function<BiConsumer<Object, Object>, String
             create.setAccessible(true);
             Object error = create.invoke(null, data, campaignState);
             if (error != null) return String.valueOf(error);
-            driverClass.getMethod("goToState", String.class).invoke(driver, "Campaign State");
+            //as the title screen does: goToState is the current state's (AppState), not the driver's
+            Object title = driverClass.getMethod("getCurrentState").invoke(driver);
+            Class.forName("com.fs.state.AppState").getMethod("goToState", String.class).invoke(title, "Campaign State");
             return null;
         } catch (Throwable t) {
             return t.toString();

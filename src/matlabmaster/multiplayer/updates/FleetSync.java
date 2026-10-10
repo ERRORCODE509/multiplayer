@@ -31,6 +31,11 @@ public class FleetSync
     private static final int FULL_SYNC_TICKS = 20; //at 20 ticks per second: every fleet in full once a second
     private int globalTick = 0;
 
+    /** Our fleet as the server has it now (on joining), what the next update is the difference from. */
+    public void resetOwnFleet(JSONObject sent) {
+        lastTickFleet = sent;
+    }
+
     public void sendOwnFleetUpdate(Client client) throws JSONException {
         JSONObject newFleet = FleetSerializer.serializeFleet(Global.getSector().getPlayerFleet());
         JSONObject diffs = JsonDiffUtility.getDifferences(lastTickFleet, newFleet);

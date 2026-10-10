@@ -179,7 +179,12 @@ public class UI extends JFrame {
                     // On lance la connexion client dans un thread séparé avec un petit délai
                     new Thread(() -> {
                         try {
-                            Thread.sleep(200); // Pause de 200ms pour laisser le port s'ouvrir
+                            //until the port is open: the first time, making the server's certificate takes a while
+                            for (int i = 0; i < 100 && server.isRunning && !server.isListening(); i++) Thread.sleep(100);
+                            if (!server.isListening()) { //it couldn't host (the log says why), or it's very slow
+                                if (server.isRunning) MultiplayerLog.log().warn("The server didn't open its port within 10 seconds: this game didn't join it. Stop it and host again");
+                                return;
+                            }
                             client.isSelfHosted = true;
                             client.localServer = server;
                             client.connect("127.0.0.1", connectPort);
@@ -215,9 +220,7 @@ public class UI extends JFrame {
                 //no game yet: log in, and the game for this server is loaded or made, then joins (TitleJoin)
                 new Thread(() -> {
                     try {
-                        client.user = user;
-                        client.password = password;
-                        TitleJoin.login(client, ip, connectPort);
+                        TitleJoin.login(client, ip, connectPort, user, password);
                     } catch (UserError e) {
                         MultiplayerLog.log().warn(e.getMessage());
                     } catch (Exception ex) {

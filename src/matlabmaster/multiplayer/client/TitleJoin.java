@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -71,6 +72,8 @@ public class TitleJoin {
         }
     }
 
+    /** A login being checked with the server. */
+    private static final AtomicBoolean checking = new AtomicBoolean(false);
     /** Checked, waiting for the title screen's next frame. */
     private static volatile Login waiting;
     /** Its game is being made or loaded: it joins once that game runs. */
@@ -83,14 +86,19 @@ public class TitleJoin {
     }
 
     /** The window's CONNECT at the title screen (not the game thread): the login is checked here, the game comes next frame. */
-    public static void login(Client client, String host, int port) throws IOException {
+    public static void login(Client client, String host, int port, String user, String password) throws IOException {
         if (!available()) {
             throw new UserError("Logging in from the title screen needs the multiplayer agent: start the game with the multiplayer launcher (START MY GAME), or load a game first and connect from it");
         }
-        if (waiting != null || joining != null) throw new UserError("Already logging in: wait for the game to load");
-        String seed = client.checkLoginFromTitle(host, port);
-        MultiplayerLog.log().info("Logged in to " + host + ":" + port + " as " + client.user + ": getting your game ready");
-        waiting = new Login(host, port, client.user, client.password, seed);
+        //one at a time: CONNECT clicked again while the server checks the login (which takes a moment)
+        if (waiting != null || joining != null || !checking.compareAndSet(false, true)) throw new UserError("Already logging in: wait for the game to load");
+        try {
+            String seed = client.checkLoginFromTitle(host, port, user, password);
+            MultiplayerLog.log().info("Logged in to " + host + ":" + port + " as " + user + ": getting your game ready");
+            waiting = new Login(host, port, user, password, seed);
+        } finally {
+            checking.set(false);
+        }
     }
 
     /** Every title screen frame (AutoLoadPlugin, the game thread): loads or makes the game for a login that's waiting. */

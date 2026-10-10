@@ -141,6 +141,42 @@ Unlicense, as its developer stated (also in `LICENSE`).
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
+- [ ] **Bug sweep (2026-10-10, untested in game; both jars changed).** Found by a review of the whole mod, each
+  checked against the code and the game's jars; fixed:
+  1. Loading a save or making a game from the title screen called `goToState` on `AppDriver`, which has none (it's
+     `AppState`'s): the server's auto-load and the title login could never have worked. Now through the current
+     state, as the title screen does. The title login and auto-load tests above/below need this build.
+  2. Server connections: the welcome (and with it the TLS handshake) was written on the accepting thread, so one
+     connection that sent nothing stopped everyone else joining; now on the player's own thread, with 15 s to set
+     up. Every send now goes through a per-player queue and writer thread: a player whose game stops reading
+     (asleep, cut off) froze the server's game in the write; now they're disconnected after 5000 waiting messages
+     (log "<name> isn't taking what's sent to them ... disconnected"), closed at once (linger 0: an encrypted close
+     would otherwise wait for the stuck write; stopping the server too). The client's own TLS handshake has a 15 s
+     timeout too.
+  3. A refused join never showed why: the server closed the connection at once and the client dropped its queue.
+     Now "Login refused: <why>" shows (campaign log and window); the same save in two games says "<name> is already
+     connected". The server ends its side and reads what the game still sends until it closes (closing with that
+     unread would reset the connection and lose the reason).
+  4. Hosting on a port that's taken (or the certificate failing) left the server "running" with nothing listening:
+     now the log says why ("Couldn't host on port N: ...") and the window goes back to HOST. The host's own client
+     waits for the port to open (the first time, making the certificate takes a moment) instead of 200 ms.
+  5. Two CONNECT clicks at the title screen ran two logins on the same connection: one at a time now.
+  6. An account used from another save got its own old colonies mirrored as someone else's.
+  7. Rejoining (or loading another save, then joining) added every ship again to the other games' copy of your
+     fleet: the first update was a difference from the fleet as it was when you last left.
+  8. Cargo changes (fuel used, loot) never reached fleet copies (only whole stacks added or removed); special items
+     were added again on top of themselves.
+  9. Debris: a field another player's battle left in a location this game doesn't have was reported gone, and
+     deleted from the world and from that player's game; a field shared on joining could be deleted the same way.
+  10. An interception arriving just as a dialog opened cancelled the server's hold for that dialog.
+  11. A world copy of a player's colony left its station and station fleet behind when removed; an upgrade
+      (Orbital Station -> Battlestation, Patrol HQ -> Military Base) made the copy's industry stop working until done.
+  12. A character or username named like a player faction (`mp_player_3`) used up that faction slot.
+  Checked outside the game: `TitleLoginTest` (now also a refusal's reason arriving, a player who reads nothing not
+  holding up the server, one login at a time), `AgentTitleTest` (goToState), `AgentTest`, and the new
+  `run-tls-test.sh` (`TlsServerTest`, with the agent: a silent connection doesn't stop others joining and is dropped
+  after 15 s, a refusal arrives over TLS, a stuck TLS player is disconnected and stopping doesn't wait, a client
+  gives up on a server that never answers).
 - [ ] **Login from the title screen, no new-game screens (`TitleJoin`, protocol 9, untested in game).** Both games
   need the new jars (mod and `launcher/MultiplayerAgent.jar`): close everything, then `Start Server Launcher.bat` ->
   START SERVER, then START MY GAME. Checked outside the game: the login check against a real server (accounts,
