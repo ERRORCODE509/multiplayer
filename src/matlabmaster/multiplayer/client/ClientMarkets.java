@@ -78,6 +78,9 @@ public class ClientMarkets {
         hitMarket = null;
         hitBefore = null;
         if (target == null) return;
+        //our game is still about to be replaced by the server's record of us: what we trade or take here with this
+        //save's cargo would be undone on our side and kept on the world's (dialogClosed sends nothing either)
+        if (client.isAwaitingRecord()) return;
         MarketAPI market = target.getMarket();
         if (!client.isSelfHosted && market != null && !market.isPlayerOwned() && !market.isPlanetConditionMarketOnly() && !ColonyMirrors.isMirror(market)) {
             try {
@@ -135,6 +138,17 @@ public class ClientMarkets {
 
     /** The dialog closed (PauseUtility): what the player bought and sold goes to the server's market. */
     public void dialogClosed(Client client) {
+        if (client.isAwaitingRecord()) {
+            //the server's record of us is still on its way: it overwrites our cargo, so nothing done in this dialog
+            //reaches the world (see dialogOpened)
+            if (open != null || ownOpen != null || hitMarket != null) MultiplayerLog.log().info("Left a market while our game loads from the server: what was done there stays in this game");
+            open = null;
+            before = null;
+            ownOpen = null;
+            hitMarket = null;
+            hitBefore = null;
+            return;
+        }
         if (hitMarket != null && hitBefore != null) {
             //raided, bombarded (the time a dialog takes doesn't pass: anything else is ours)
             try {

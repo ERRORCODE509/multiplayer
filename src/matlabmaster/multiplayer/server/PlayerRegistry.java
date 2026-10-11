@@ -21,8 +21,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * "faction:<playerId>" -> mp_player_N, "name:<playerId>" -> their name, "look:<mp_player_N>" -> look JSON,
  * "colonies:<playerId>" -> colonies JSON, "trades:<playerId>" -> visitors' trades at their colonies while they were
  * offline (JSON array, see ServerMarkets), "raids:<playerId>" -> news of the world's raids on their colonies
- * (ServerRaids), "raidOver:<raid id>" -> how a raid ended (ServerRaids). A ConcurrentHashMap: the network threads
- * reserve factions while the game thread may be saving it.
+ * (ServerRaids), "raidOver:<raid id>" -> how a raid ended (ServerRaids), "record:<playerId>" -> their record (their
+ * character, fleet, cargo and the rest of their own state as their game last described it, JSON, see PlayerRecords),
+ * "recordUnreadable:<playerId>" -> one that couldn't be read when they joined, kept aside. A ConcurrentHashMap: the
+ * network threads reserve factions while the game thread may be saving it.
  */
 public class PlayerRegistry {
     private static final String KEY = "multiplayer_players";
@@ -110,6 +112,19 @@ public class PlayerRegistry {
 
     public void setColonies(String playerId, JSONArray colonies) {
         data.put("colonies:" + playerId, colonies.toString());
+    }
+
+    /**
+     * A player's record as last written (PlayerRecords holds the live one while they're connected), or null if they
+     * have none yet; throws if what's kept can't be read.
+     */
+    public JSONObject record(String playerId) throws JSONException {
+        String record = data.get("record:" + playerId);
+        return record == null ? null : new JSONObject(record);
+    }
+
+    public void setRecord(String playerId, JSONObject record) {
+        data.put("record:" + playerId, record.toString());
     }
 
     /** A visitor's trade at a player's colony while they were offline, for their game when they're back. */

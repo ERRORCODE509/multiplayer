@@ -3,6 +3,7 @@ package matlabmaster.multiplayer.server;
 import com.fs.starfarer.api.EveryFrameScript;
 import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.CampaignFleetAPI;
+import com.fs.starfarer.api.campaign.CampaignUIAPI;
 import com.fs.starfarer.api.campaign.InteractionDialogAPI;
 import com.fs.starfarer.api.campaign.LocationAPI;
 import com.fs.starfarer.api.campaign.SectorEntityToken;
@@ -79,6 +80,17 @@ public class ServerScripts implements EveryFrameScript {
     /** Interceptions waiting for the player's game to open them (client id -> the hold, and since when). */
     private final Map<String, Server.Interaction> intercepts = new HashMap<>();
     private final Map<String, Float> interceptedAt = new HashMap<>();
+    /**
+     * A dedicated server saves its world itself (see saveWorldWhenDue): the players' records reach disk only with a
+     * save, and nobody plays here to make one. Every 10 minutes while anyone is connected, and soon after a player
+     * leaves, but never twice within 2 minutes (a save stalls the world for a moment). Wall-clock milliseconds.
+     */
+    private static final long SAVE_INTERVAL_MS = 10 * 60 * 1000L;
+    private static final long SAVE_GAP_MS = 2 * 60 * 1000L;
+    private long lastSaveAt = 0L;
+    /** When the players' time since the last save started: the last save, or the first join after nobody was here. */
+    private long connectedSince = 0L;
+    private boolean anyoneWasConnected = false;
 
     public ServerScripts(Server serverInstance){
         this.serverInstance = serverInstance;
@@ -115,9 +127,11 @@ public class ServerScripts implements EveryFrameScript {
         serverInstance.raids.advance(amount);
         serverInstance.entities.advance(amount);
         serverInstance.ownership.advance(amount);
+        serverInstance.records.advance(amount); //paused or not: the players' games go on changing their records
 
         boolean paused = Global.getSector().isPaused();
         if (serverInstance.isDedicated()) {
+            saveWorldWhenDue(); //first: the save shows the fleet hideOwnFleet hides again just below
             hideOwnFleet(true);
             keepOwnFleetSupplied(amount);
             //its own player at a player's colony trades there as a visitor (ServerMarkets)
@@ -169,6 +183,41 @@ public class ServerScripts implements EveryFrameScript {
      */
     public void beforeGameSave() {
         hideOwnFleet(false);
+        //the players' records as they are now, not as last written (every 30 seconds)
+        int written = serverInstance.records.flush();
+        if (written > 0) MultiplayerLog.log().info(written + " player record(s) written to the world before it's saved");
+    }
+
+    /**
+     * Dedicated only, every frame: saves the world when it's due (see SAVE_INTERVAL_MS), into the folder it was
+     * loaded from, which is what the launcher loads again next time (an autosave makes a new folder it wouldn't).
+     * beforeGameSave writes every record to the registry first. Not while a dialog or menu shows, as the game
+     * itself never saves then: tried again next frame.
+     */
+    private void saveWorldWhenDue() {
+        long now = System.currentTimeMillis();
+        if (lastSaveAt == 0L) lastSaveAt = now; //hosting just started from a save: nothing to keep yet
+        boolean anyone = !serverInstance.clientPlayers.isEmpty();
+        if (anyone && !anyoneWasConnected) connectedSince = now; //an empty server's time doesn't count
+        anyoneWasConnected = anyone;
+        if (now - lastSaveAt < SAVE_GAP_MS) return;
+        boolean left = serverInstance.records.leftSinceSave();
+        boolean periodic = anyone && now - Math.max(lastSaveAt, connectedSince) >= SAVE_INTERVAL_MS;
+        if (!left && !periodic) return;
+        CampaignUIAPI ui = Global.getSector().getCampaignUI();
+        if (ui.isShowingDialog() || ui.isShowingMenu() || ui.getCurrentInteractionDialog() != null) return;
+        lastSaveAt = now; //a failed save isn't retried every frame either
+        try {
+            if (ui.cmdSave()) {
+                serverInstance.records.worldSaved();
+                MultiplayerLog.log().info("World saved (players' records)");
+            } else {
+                //the game shows why in a message dialog, which keeps this world paused until someone closes it
+                MultiplayerLog.log().error("Couldn't save the world: the players' records are only as recent as its last save");
+            }
+        } catch (Exception e) {
+            MultiplayerLog.log().error("Couldn't save the world: the players' records are only as recent as its last save", e);
+        }
     }
 
     private void started() {
@@ -179,6 +228,8 @@ public class ServerScripts implements EveryFrameScript {
         fleetSync = new FleetSync(); //the new clients know nothing yet: start the diffs from scratch
         worldWasPaused = false;
         timer = 0f;
+        lastSaveAt = 0L; //counted from the first frame of hosting
+        anyoneWasConnected = false;
         serverInstance.raids.started();
         MultiplayerLog.log().info("This game is now the world for every client (" + (serverInstance.isDedicated() ? "dedicated" : "host current game") + ")");
     }
@@ -193,6 +244,7 @@ public class ServerScripts implements EveryFrameScript {
         serverInstance.raids.stopped();
         serverInstance.entities.stopped();
         serverInstance.ownership.stopped();
+        serverInstance.records.stopped(); //what was queued for the players leaving was dropped: written here instead
         heldAt.clear();
         orbiting.clear(); //the players' fleets themselves are removed just below
         pinnedAt.clear();

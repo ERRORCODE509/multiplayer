@@ -123,6 +123,37 @@ Unlicense, as its developer stated (also in `LICENSE`).
   obfuscated `CampaignGameManager` loader (found by signature: static String (String, A, B) taking the session's
   "campaign state in session" twice), `AppDriver.goToState("Campaign State")`, as `TitleScreenState
   .dialogDismissed` does for its Load dialog (0.98a). Mods can't do it themselves (no reflection).
+- Player records (plan step 4, protocol 10): the server holds each player's personal state and overwrites their
+  game with it at every join, so offline play, an edited save or an older save never becomes the truth.
+  `utils/PlayerRecord` reads and applies it (JSON, version 1; sets as {id: true}): the character (level, XP, bonus
+  XP, skill and story points, skills, ever-elite, learned hullmods, abilities, name, portrait), officers (idle ones
+  too, XP, whitelisted memory flags) and idle admins, the fleet exactly (D-hulls, d-mods as perma-mods, s-mods,
+  s-modded built-ins, suppressed mods, weapons, wings, groups, tags, modules, CR, hull, mothballing, captains incl.
+  AI cores), cargo and credits, reputation (full floats), the commission, the player faction's blueprints, storage
+  at every market incl. colonies (`readStorage`, all locations' markets), and the fleet's location. `apply` order:
+  character, blueprints, abilities, reputation, fleet (built before the old one goes; the player always captains
+  the flagship), admins, cargo, storage, location. What can't be applied is returned as problems (shown, joining
+  goes on; the read that follows leaves it out); only an unusable record (another version, or ships none of which
+  can be built) stops the join. What this game can't place yet (storage at a market it doesn't have, e.g. a
+  world-market copy made later; reputation with a missing faction; a commission it can't change) is carried in
+  every read until it can (`placeStorage` from `WorldMarkets.create`). An empty fleet is recorded as one (vanilla's
+  respawn follows).
+  Join: `completeJoin` waits until no dialog is open, sends the hello (no fleet), and the client is "awaiting
+  record": nothing personal or world-changing is sent (fleet, faction, colonies, raids, trades, market hits,
+  salvage, battle results, debris). Server: after `yourFaction`, `yourRecord` {playerId (adopted into the save's
+  `PlayerIdentity`), local, record?} from the game thread; while pending it drops that client's personal and
+  world-changing messages (also from connections that haven't said hello). The client applies it (`canApplyNow`:
+  no dialog or menu, not in a transition or battle; sector scripts stripped first), then sends `recordApplied`
+  {record read back, rev 0}, then its `fleetSnapshot`; the server clears pending on reading `recordApplied`
+  (network thread). No record yet: the game's own state becomes it. Streaming: `playerRecordUpdate` {base, rev,
+  changes} (JsonDiffUtility diffs, applied on the server by `JsonDiffUtility.apply`) every second, `playerRecord` in
+  full every minute and on `requestPlayerRecord` (rev mismatch or a diff that fails); storage re-read every 10 s,
+  every second for the market of an open dialog, and in full when a dialog or game screen closes; DISCONNECT sends a
+  last full record first (waits up to 2 s). Loading another save while connected disconnects. Server:
+  `PlayerRecords` cache on the game thread, written to the registry ("record:<playerId>") every 30 s, at
+  `beforeGameSave`, on leave and on stop; a dedicated server saves its world in place (`CampaignUIAPI.cmdSave`, the
+  folder the launcher loads) when a player left (at most every 2 min) and every 10 min while anyone is connected,
+  never with a dialog up. The host's own client (host current game) has no record: its game is the world.
 - Login from the title screen (`client/TitleJoin`, protocol 9): CONNECT at the title screen runs
   `Client.checkLoginFromTitle` (window thread): TLS, `welcome` (version and mods checked, not the seed: there's no
   game yet), `checkLogin` {user, password} -> `loginChecked` {ok, reason} (server `Accounts.check`: nothing made,
@@ -152,6 +183,33 @@ Unlicense, as its developer stated (also in `LICENSE`).
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
+- [ ] **Player records on the server (plan step 4, protocol 10; untested in game; mod jar changed).** Reviewed by
+  two adversarial passes (fixed: storage lost or duplicated around joins and leaves, lockouts on a record that
+  can't be applied, actions in a dialog left open while joining, colony storage, old commissions, crash rollbacks,
+  undoing a lost fleet). Checked outside the game: everything compiles against RC8 + Nexerelin;
+  `JsonDiffUtility.apply` round trips 13,049 random and hand-made cases (scratch test). Use a dedicated server
+  (START SERVER), and both games with the new jar.
+  1. First join with a new account: the server's log "<name> joined with no record yet". Play a bit (buy, fight,
+     level up, store something at a market), DISCONNECT (log "Sent our record to the server before leaving"); the
+     server's log "World saved (players' records)" within 2 minutes.
+  2. Offline: play on in that game (sell ships, spend credits, take things out of storage), then CONNECT again:
+     everything is back as the server last had it (fleet with its d-mods and damage, officers incl. idle ones,
+     cargo, credits, XP, skills, story points, storage, where the fleet was). starsector.log: "Applied the server's
+     player record: N ships...".
+  3. Load an older save and connect, and a brand-new game for the same account (title screen login, with the save
+     deleted): the same state comes back (colonies excepted).
+  4. Joining with a market dialog open: "Close the dialog to finish joining the server", then it joins.
+  5. Lose every ship and disconnect before the respawn: rejoining keeps the fleet lost (vanilla's respawn follows).
+  6. Watch for (game behaviours the code couldn't confirm): level or points changing by themselves after the record
+     is applied (setXP), built-in weapons and hullmods on rebuilt ships (Paragon, Odyssey, modular modded hulls),
+     CR of mothballed ships, the fleet moved to another system, storage at a market not unlocked before, and with
+     Nexerelin, reputation overwritten later by its diplomacy. Any "things from the server's record couldn't be
+     restored" message: send starsector.log.
+  Limits: an account's first record is its game's state (a new account from an edited save is believed: step 5);
+  an existing account without a record (from before this build) gets the state of the game it joins with;
+  contacts, missions, story flags, Nexerelin's own player state, the ability bar and colonies are the game's own;
+  live cheating while connected (console, devmode) is still trusted (step 5); a crash loses what happened since the
+  world's last save (at most ~10 min on a dedicated server).
 - [ ] **New games for a server: its difficulty and Nexerelin's options, the character's gender and portrait
   (untested in game; both jars changed).** Needs the title-screen login below working first. Checked outside the
   game: both jars compile against the RC8 jars and Nexerelin 0.12.2c's (its fields and commands as used).
@@ -425,9 +483,9 @@ the players' games (results trusted, sanity-checked at best); colonies stay in t
    server's record replaces fleet, cargo, credits, skills: step 4). Nexerelin: its choices are rule commands
    (Nex_NGCSetOption, Nex_NGCFinalize...) into its setup data: set from the server's values. Check: what vanilla's
    and the mods' new-game scripts (data.getScripts(), ModPlugin.onNewGame*) need that the dialog normally does.
-4. Player record on the server: character (level, skills, story points, XP), fleet and officers, cargo, credits,
-   reputation, blueprints, kept live from what the game already streams (+ the character). On login the player's
-   local save for that server loads (agent SaveLoader) and the record overwrites their personal state.
+4. Player record on the server (done, untested in game: `utils/PlayerRecord`, `server/PlayerRecords`, see
+   Architecture). Its own stream, not the fleet updates (those are relayed to everyone). Not in it: colonies (stay
+   in the owner's game), contacts, missions and story flags, Nexerelin's own state, the ability bar.
 5. Later: checks on record changes (credits, ships, cargo, rep need a cause the server saw); colonies run by the
    server.
 

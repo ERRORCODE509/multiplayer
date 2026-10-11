@@ -33,7 +33,7 @@ import org.lwjgl.util.vector.Vector2f;
 
 public class Server {
     /** Bump whenever client and server messages change in a way an older version can't handle; checked on join. */
-    public static final int PROTOCOL_VERSION = 9; //2: the server's game is the only authority. 3: player factions, markets. 4: hello (player ids), colonies. 5: trade at colonies. 6: the world's debris on joining. 7: the world runs raids on players' colonies. 8: salvage, world owners, world markets, bounties. 9: login from the title screen (checkLogin)
+    public static final int PROTOCOL_VERSION = 10; //2: the server's game is the only authority. 3: player factions, markets. 4: hello (player ids), colonies. 5: trade at colonies. 6: the world's debris on joining. 7: the world runs raids on players' colonies. 8: salvage, world owners, world markets, bounties. 9: login from the title screen (checkLogin). 10: players' records on the server (yourRecord before a joining game sends its own state, recordApplied, playerRecord(Update))
 
     private int port;
     private volatile ServerSocket serverSocket;
@@ -121,6 +121,8 @@ public class Server {
     public final ServerEntities entities = new ServerEntities(this);
     /** Who owns the world's markets and objectives, for the players (game thread). */
     public final ServerOwnership ownership = new ServerOwnership(this);
+    /** Each player's own state (character, fleet, cargo...), held by the world and sent to them as they join. */
+    public final PlayerRecords records = new PlayerRecords(this);
     /** Connected players this game has no copy of the fleet of (game thread only), so it's only logged once. */
     private final Set<String> missingPlayerFleets = new HashSet<>();
     /**
@@ -198,6 +200,7 @@ public class Server {
             throw new UserError("Couldn't read this game's version, seed and mods: " + e.getMessage());
         }
         registry.load(); //before anyone can join: who's who in this world
+        records.clear(); //and their records are this world's registry's, not what an earlier session held
         welcomeTimeoutMs = 1000 * hostSetting("multiplayerWelcomeTimeoutSeconds", 15, 1);
         maxWaiting = hostSetting("multiplayerMaxWaitingMessages", 5000, 100);
         isRunning = true;
@@ -321,6 +324,8 @@ public class Server {
             // 3. Dispatcher
             switch (commandId) {
                 case "playerFleetUpdate":
+                    //from a game that hasn't applied its record: about the fleet the record replaces
+                    if (records.dropWhilePending(clientId, commandId)) break;
                     rewriteOwnFaction(clientId, json);
                     broadcastExcept(clientId, json.toString());
                     if (dedicated) gameThreadTasks.add(() -> applyPlayerFleetUpdate(clientId, json));
@@ -342,9 +347,9 @@ public class Server {
                     });
                     break;
                 case "fleetSnapshot":
-                    rewriteOwnFaction(clientId, json);
-                    broadcastExcept(clientId, json.toString());
-                    if (dedicated) gameThreadTasks.add(() -> spawnPlayerFleet(json));
+                    //a joining game sends the fleet its record made just before saying it applied it: held till then
+                    if (records.holdWhilePending(clientId, json)) break;
+                    fleetSnapshot(clientId, json);
                     break;
                 case "requestFleetSnapshot":
                     //the world is this game: answer from it, on the game thread
@@ -365,6 +370,7 @@ public class Server {
                     });
                     break;
                 case "handleFleetSnapshotRequest":
+                    if (records.dropWhilePending(clientId, commandId)) break; //the fleet from before its record
                     rewriteOwnFaction(clientId, json); //the sender's own fleet
                     if (SERVER_ID.equals(json.optString("to"))) { //a player's fleet a dedicated server asked for
                         if (dedicated) gameThreadTasks.add(() -> spawnPlayerFleet(json));
@@ -420,7 +426,14 @@ public class Server {
                     break;
                 case "playerFaction":
                     //the player's reputation (their own game decides it) and how their faction looks
+                    if (records.dropWhilePending(clientId, commandId)) break; //the reputation from before its record
                     gameThreadTasks.add(() -> factionSync.playerFaction(clientId, json));
+                    break;
+                case "recordApplied":
+                case "playerRecordUpdate":
+                case "playerRecord":
+                    //the player's own state, which the world keeps for them (PlayerRecords)
+                    recordMessage(clientId, commandId, json);
                     break;
                 case "requestMarket":
                     //a player opened a market: its stock (see ServerMarkets)
@@ -428,13 +441,16 @@ public class Server {
                     gameThreadTasks.add(() -> markets.request(clientId, marketId));
                     break;
                 case "marketTrade":
-                    //what a player bought and sold there
+                    //what a player bought and sold there (with the goods of the save their record is about to replace,
+                    //while it's pending: not taken, as for the raids, salvage and battles below)
+                    if (records.dropWhilePending(clientId, commandId)) break;
                     JSONObject trade = json.getJSONObject("trade");
                     gameThreadTasks.add(() -> markets.trade(clientId, trade));
                     break;
                 case "debrisFields":
                 case "debrisGone":
                     //the debris a player's battle left, or a field gone in their game: the world and everyone else too
+                    if (records.dropWhilePending(clientId, commandId)) break; //a battle or salvage before its record
                     gameThreadTasks.add(() -> {
                         try {
                             debris.received(clientId, json);
@@ -445,6 +461,7 @@ public class Server {
                     break;
                 case "battleResult":
                     //a player's battle against the world's NPC fleets: they lose the same ships here
+                    if (records.dropWhilePending(clientId, commandId)) break; //fought with the fleet the record replaces
                     JSONObject result = json.getJSONObject("result");
                     gameThreadTasks.add(() -> {
                         try {
@@ -472,6 +489,7 @@ public class Server {
                     break;
                 case "marketHit":
                     //the player raided or bombarded one of the world's markets in their game: the world's takes it too
+                    if (records.dropWhilePending(clientId, commandId)) break; //with the marines and loot the record replaces
                     gameThreadTasks.add(() -> {
                         try {
                             matlabmaster.multiplayer.updates.RaidSync.applyPlayerHit(who(clientId), json.getJSONObject("hit"));
@@ -495,6 +513,7 @@ public class Server {
                     break;
                 case "entityGone":
                     //the player salvaged one of the world's things: gone from the world and everyone's game
+                    if (records.dropWhilePending(clientId, commandId)) break; //loot the record is about to replace
                     gameThreadTasks.add(() -> entities.gone(clientId, json.optString("id")));
                     break;
                 case "colonyLost":
@@ -516,6 +535,47 @@ public class Server {
 
         } catch (Exception e) {
             MultiplayerLog.log().error("JSON Error from " + clientId + " : " + e.getMessage(), e);
+        }
+    }
+
+    /** A player's whole fleet from their game (network thread): to the other players, and this game's copy when dedicated. */
+    private void fleetSnapshot(String clientId, JSONObject json) throws JSONException {
+        rewriteOwnFaction(clientId, json);
+        broadcastExcept(clientId, json.toString());
+        if (dedicated) gameThreadTasks.add(() -> spawnPlayerFleet(json));
+    }
+
+    /**
+     * A player's record from their game (network thread), handed to PlayerRecords on the game thread with whose it is,
+     * read now: forgetPlayer() clears that as soon as they leave, maybe before the task runs. The host's own client
+     * has none (its game is the world).
+     */
+    private void recordMessage(String clientId, String commandId, JSONObject json) throws JSONException {
+        String playerId = clientPlayers.get(clientId);
+        if (playerId == null || isLocalClient(clientId)) return;
+        switch (commandId) {
+            case "recordApplied":
+                //their game now matches their record (or had none, and its state becomes it): what it says about
+                //itself counts from now on, starting with its fleet, which came just before this
+                JSONObject held = records.applied(clientId);
+                if (held != null) fleetSnapshot(clientId, held);
+                JSONObject applied = json.getJSONObject("record");
+                int appliedRev = json.optInt("rev", 0);
+                gameThreadTasks.add(() -> records.adopt(clientId, playerId, applied, appliedRev));
+                break;
+            case "playerRecordUpdate":
+                if (records.dropWhilePending(clientId, commandId)) return;
+                int base = json.getInt("base");
+                int rev = json.getInt("rev");
+                JSONObject changes = json.getJSONObject("changes");
+                gameThreadTasks.add(() -> records.update(clientId, playerId, base, rev, changes));
+                break;
+            default: //playerRecord: all of it
+                if (records.dropWhilePending(clientId, commandId)) return;
+                JSONObject record = json.getJSONObject("record");
+                int fullRev = json.getInt("rev");
+                gameThreadTasks.add(() -> records.replace(clientId, playerId, record, fullRev));
+                break;
         }
     }
 
@@ -557,6 +617,9 @@ public class Server {
         reply.put("commandId", "yourFaction");
         reply.put("faction", faction);
         sendTo(clientId, reply.toString());
+        //then their record, which their game applies before it says anything about itself (PlayerRecords); the host's
+        //own client is told it has none to apply
+        records.joined(clientId, playerId, isLocalClient(clientId));
         clientNames.put(clientId, name);
         showPlayers();
         //who's here already (themselves too), for their window's list; later ones come as playerJoined
@@ -667,6 +730,8 @@ public class Server {
      */
     public void requestMissingPlayerFleets() {
         for (String clientId : worldClients().keySet()) {
+            //a game still applying its record sends the fleet the record made once it has: none to ask for yet
+            if (records.isPending(clientId)) continue;
             if (Global.getSector().getEntityById(clientId) instanceof CampaignFleetAPI) {
                 if (missingPlayerFleets.remove(clientId)) MultiplayerLog.log().info("Have " + who(clientId) + "'s fleet again");
                 continue;
@@ -866,7 +931,10 @@ public class Server {
             closed = true;
             clients.remove(clientId, this);
             interactions.remove(clientId); //a player who left isn't talking to anyone
+            String playerId = clientPlayers.get(clientId); //read before forgetPlayer() clears it
             forgetPlayer();
+            //their record written to the world, after whatever they sent before leaving (queued before this)
+            if (playerId != null) gameThreadTasks.add(() -> records.left(playerId));
             if (clientId.equals(localClientId)) localClientId = null;
             if (dedicated) { //remove this game's copy of their fleet
                 pendingPlayerSnapshots.remove(clientId);
@@ -877,6 +945,7 @@ public class Server {
         /** Who they were in this world (their player and faction): free for their next connection, or the next player. */
         private void forgetPlayer() {
             clientPlayers.remove(clientId);
+            records.forget(clientId); //not waiting for their record any more
             String faction = clientFactions.remove(clientId);
             if (faction != null) gameThreadTasks.add(() -> factionSync.freed(faction)); //for the next player
         }

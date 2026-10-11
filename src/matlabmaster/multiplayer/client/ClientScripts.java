@@ -5,8 +5,10 @@ import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.BaseCampaignEventListener;
 import com.fs.starfarer.api.campaign.BattleAPI;
 import com.fs.starfarer.api.campaign.CampaignFleetAPI;
+import com.fs.starfarer.api.campaign.InteractionDialogAPI;
 import com.fs.starfarer.api.campaign.LocationAPI;
 import com.fs.starfarer.api.campaign.SectorEntityToken;
+import com.fs.starfarer.api.campaign.econ.MarketAPI;
 import com.fs.starfarer.api.impl.campaign.ids.MemFlags;
 import com.fs.starfarer.api.util.Misc;
 import com.fs.starfarer.campaign.Faction;
@@ -75,6 +77,38 @@ public class ClientScripts implements EveryFrameScript {
      * disconnecting empties the message queue, so the reason is kept here to be shown once we're disconnected.
      */
     private volatile String refusal = null;
+    /** Joined this session (completeJoin ran): what joining did is undone on leaving. */
+    private boolean inSession = false;
+    /**
+     * The server's "yourRecord", kept until it can be applied (PlayerRecord.canApplyNow: not in a dialog, a jump or a
+     * battle); null when none is waiting. Joining finishes once it's in (finishJoin).
+     */
+    private JSONObject recordToApply = null;
+    private boolean recordWaitLogged = false;
+    /** Whether our record goes to the server: after joining someone else's server (the host's game is the world). */
+    private boolean streamingRecord = false;
+    /** Our record as the server has it (last sent in full or as a diff): the next diff is taken from it. */
+    private JSONObject recordSent = null;
+    /** Its revision: each diff says which one it applies to, so the server can tell when it missed one. */
+    private int recordRev = 0;
+    /** The record's storage section as last read: it goes through every market, so it's read less often. */
+    private JSONObject storageSection = null;
+    private float recordTimer = 0f, storageTimer = 0f, fullRecordTimer = 0f;
+    /** The server's copy is out of step ("requestPlayerRecord"): the next one goes in full. */
+    private boolean fullRecordAsked = false;
+    private static final float RECORD_INTERVAL = 1f, STORAGE_INTERVAL = 10f, FULL_RECORD_INTERVAL = 60f;
+    /** What reading or sending our record failed at this session: logged once each, not every second. */
+    private final Set<String> recordErrors = new HashSet<>();
+    /** Whether an interaction dialog was open at the last frame: storage is read again in full once it closes. */
+    private boolean wasInDialog = false;
+    /**
+     * Whether a game screen (fleet, cargo, the colonies' screen...) was showing at the last frame: storage is read
+     * again in full once it closes, since a colony's storage can change there without any dialog (an industry's
+     * item taken out or put in from afar).
+     */
+    private boolean wasShowingScreen = false;
+    /** Joining waits for the player to close a dialog (see advance): said once. */
+    private boolean joinWaitNotified = false;
 
     // Message waitlist coming from client thread
     private static final ConcurrentLinkedQueue<JSONObject> messageQueue = new ConcurrentLinkedQueue<>();
@@ -127,12 +161,15 @@ public class ClientScripts implements EveryFrameScript {
                 MultiplayerLog.log().error("The server refused the login: " + refused);
                 notify("Login refused: " + refused);
             }
-            if (factionSent != null) { //just disconnected: nobody else is here any more
+            if (inSession) { //just disconnected: nobody else is here any more
+                inSession = false;
                 PlayerFactions.hideAll();
                 int copies = FleetHelper.removePlayerCopies();
                 if (copies > 0) MultiplayerLog.log().info("Removed the other players' fleets (" + copies + ")");
                 notify("Disconnected from the multiplayer server");
             }
+            resetRecordState();
+            joinWaitNotified = false;
             factionSent = null;
             coloniesSent = null;
             debrisKnown.clear();
@@ -158,44 +195,71 @@ public class ClientScripts implements EveryFrameScript {
             }
             return;
         }
+        //the player clicked DISCONNECT: the server gets our record as it is now first (a ship just taken out of
+        //storage would otherwise be in both places there), then we leave
+        if (client.takeDisconnectRequest()) {
+            if (streamingRecord) sendFinalRecord();
+            MultiplayerLog.log().info("Disconnecting, as the player asked");
+            client.disconnect();
+            return;
+        }
         //finish joining here, on the game thread, before any received message is processed
         if (client.isJoinPending()) {
+            //not from inside a dialog (or a jump, a battle): the server's record of us can't be applied there, and
+            //what we'd do meanwhile with this save's fleet and cargo would reach the world, then be undone on our side.
+            //The hello waits, so the server holds nothing for us yet. Its broadcasts until then are the world as it
+            //was, which joining asks for again in full: dropped, rather than piling up
+            if (!client.isSelfHosted && !PlayerRecord.canApplyNow()) {
+                messageQueue.clear();
+                if (!joinWaitNotified) {
+                    joinWaitNotified = true;
+                    MultiplayerLog.log().info("Joining waits until we're out of this dialog (or jump, or battle)");
+                    notify("Close the dialog to finish joining the server");
+                }
+                return;
+            }
+            joinWaitNotified = false;
             refusal = null; //an earlier session's
             client.completeJoin();
             if (!client.isConnected()) return;
-            //our fleet as the server was just sent it: the next update only has what changes after (a diff against
-            //how it was when we last left would add again ships the server's copy already has)
-            try {
-                fleetSync.resetOwnFleet(FleetSerializer.serializeFleet(Global.getSector().getPlayerFleet()));
-            } catch (JSONException e) {
-                MultiplayerLog.log().error("Couldn't read our fleet: the first update sends all of it", e);
-                fleetSync.resetOwnFleet(new JSONObject());
-            }
-            factionSent = null; //a new server knows nothing of us yet
+            inSession = true;
+            if (!client.isSelfHosted) notify("Your game is being loaded from the server...");
+            //a new server knows nothing of us yet. What's ours waits for its record of us (finishJoin); the world's
+            //state starts over now, since the server's messages about it are handled from this frame on
+            resetRecordState();
+            factionSent = null;
             coloniesSent = null;
             debrisKnown.clear();
             CopyAI.removeAll();
             ownRaids.reset();
             worldEntities.reset();
         }
+        if (recordToApply != null) {
+            applyRecordWhenReady();
+            if (!client.isConnected()) return; //it couldn't be applied
+        }
+        //nothing of ours is sent before the server's record of us is in: it overwrites it
+        boolean ours = !client.isAwaitingRecord();
         factionTimer += amount;
-        if (factionSent == null || factionTimer >= PlayerFactions.RELATIONS_INTERVAL) {
+        if ((ours && factionSent == null) || factionTimer >= PlayerFactions.RELATIONS_INTERVAL) {
             factionTimer = 0f;
-            sendOwnFaction();
+            if (ours) sendOwnFaction();
             if (!client.isSelfHosted) {
                 CopyAI.installAround(Global.getSector().getPlayerFleet()); //the world's fleets decide as vanilla's
                 bountyBoard.keep();
-                syncDebris();
+                //not while our game loads from the server: a field our battle left meanwhile isn't the world's
+                if (ours) syncDebris();
                 removeDuplicateCopies();
             }
         }
         coloniesTimer += amount;
-        if (coloniesSent == null || coloniesTimer >= COLONIES_INTERVAL) {
+        if (ours && (coloniesSent == null || coloniesTimer >= COLONIES_INTERVAL)) {
             coloniesTimer = 0f;
             sendOwnColonies();
         }
         //our crises' raids go to the world (the host's game is the world: they're there already)
-        if (!client.isSelfHosted) ownRaids.advance(amount, client);
+        if (!client.isSelfHosted && ours) ownRaids.advance(amount, client);
+        if (streamingRecord) streamRecord(amount);
 
         //handle the game pausing , disable classic in game pause
         //if the game is in a dialog inform the server
@@ -243,6 +307,12 @@ public class ClientScripts implements EveryFrameScript {
 
     /** A new game was loaded: any scripts saved from the previous game belong to a sector that is gone. */
     public void onGameLoad() {
+        //another save loaded mid-session would stream on as our record, the server taking it for our game: we leave,
+        //and joining again applies the server's record over it. The host's game is the world: nothing to stream
+        if (client != null && client.isConnected() && !client.isSelfHosted) {
+            MultiplayerLog.log().info("Another game was loaded while connected: disconnected");
+            client.disconnect();
+        }
         sectorScriptsUtility.forgetScripts();
         interactionOrbit.forget();
         ownRaids.reset();
@@ -263,6 +333,12 @@ public class ClientScripts implements EveryFrameScript {
             @Override
             public void reportBattleFinished(CampaignFleetAPI primaryWinner, BattleAPI battle) {
                 if (!client.isConnected() || client.isSelfHosted || battle == null || !battle.isPlayerInvolved()) return;
+                if (client.isJoinPending() || client.isAwaitingRecord()) { //not joined yet either: the same
+                    //fought with this save's fleet, which the server's record of us replaces: the world's fleets don't
+                    //lose ships to it, and no bounty is paid that the record would take back anyway
+                    MultiplayerLog.log().info("A battle while our game loads from the server: its result isn't sent to the world");
+                    return;
+                }
                 try {
                     WorldBounties.paySystemBounties(bountyBoard.list(), primaryWinner, battle); //the world's, near here
                 } catch (Exception e) {
@@ -462,6 +538,8 @@ public class ClientScripts implements EveryFrameScript {
                     }
                     break;
                 case "requestPlayerFleetSnapshot":
+                    //not while joining: the server's record of us replaces this fleet, which goes out then (finishJoin)
+                    if (client.isAwaitingRecord()) break;
                     packet = new JSONObject();
                     packet.put("commandId","handleFleetSnapshotRequest");
                     packet.put("to",message.getString("from"));
@@ -514,6 +592,23 @@ public class ClientScripts implements EveryFrameScript {
                     client.faction = message.getString("faction");
                     if (!client.isSelfHosted) FleetFlags.ownFaction = client.faction; //the world's fleets made hostile to it are hostile to us
                     TitleJoin.joined(client); //this save is our game for this server and account now
+                    break;
+                case "yourRecord": {
+                    //after yourFaction: who we are on this server (its account's id), and our game as the server keeps
+                    //it (character, fleet, cargo, ...), which overwrites this save's before anything of ours is sent.
+                    //The host's own client has none: its game is the world
+                    boolean local = message.optBoolean("local") || client.isSelfHosted;
+                    if (!local && message.has("playerId")) PlayerIdentity.adopt(message.getString("playerId"));
+                    if (!client.isAwaitingRecord() || recordToApply != null) {
+                        MultiplayerLog.log().warn("The server sent our record again: ignored (it's applied once, on joining)");
+                        break;
+                    }
+                    recordToApply = message; //applied at the start of a frame, once nothing is in the way
+                    break;
+                }
+                case "requestPlayerRecord":
+                    //the server's copy of our record is out of step (it missed a diff): the next one goes in full
+                    if (streamingRecord) fullRecordAsked = true;
                     break;
                 case "playerColonies":
                     //another player's colonies (they run in their game): mirrored here. The host's game is the world:
@@ -602,6 +697,243 @@ public class ClientScripts implements EveryFrameScript {
                 client.send(packet.toString());
             }
         }
+    }
+
+    /** No record waiting, none sent: a new session, or none. */
+    private void resetRecordState() {
+        recordToApply = null;
+        recordWaitLogged = false;
+        streamingRecord = false;
+        recordSent = null;
+        recordRev = 0;
+        storageSection = null;
+        recordTimer = 0f;
+        storageTimer = 0f;
+        fullRecordTimer = 0f;
+        fullRecordAsked = false;
+        recordErrors.clear();
+        wasInDialog = false;
+        wasShowingScreen = false;
+        //what the last record had that this game couldn't place yet (storage at a world market's copy, ...) is that
+        //session's: the next one starts from the server's record again
+        PlayerRecord.forgetCarried();
+    }
+
+    /**
+     * The server's record of us (recordToApply) overwrites this save's personal state as soon as that can be done
+     * faithfully (PlayerRecord.canApplyNow: in the campaign, no dialog, jump or battle), then joining finishes. Parts
+     * this game can't restore (an id it doesn't know) are told and left out: the record read back after (finishJoin)
+     * no longer has them, so they don't stop the next join too. A record that can't be used at all ends the session.
+     */
+    private void applyRecordWhenReady() {
+        JSONObject message = recordToApply;
+        boolean local = message.optBoolean("local") || client.isSelfHosted;
+        JSONObject record = local ? null : message.optJSONObject("record");
+        if (record != null) {
+            if (!PlayerRecord.canApplyNow()) {
+                if (!recordWaitLogged) {
+                    recordWaitLogged = true;
+                    MultiplayerLog.log().info("The server's record of us is applied once we're out of this dialog (or jump, or battle)");
+                }
+                return;
+            }
+            recordToApply = null;
+            try {
+                //the sector's scripts are the world's: none of them must react to the overwrite. Every tick takes them
+                //out, but on a fast link the server's answer can come before the first tick
+                sectorScriptsUtility.disableScripts();
+                List<String> problems = PlayerRecord.apply(record);
+                if (problems == null || problems.isEmpty()) {
+                    MultiplayerLog.log().info("Applied the server's record of us: this game is as the server keeps it");
+                } else {
+                    MultiplayerLog.log().warn("Applied the server's record of us, but " + problems.size() + " things in it couldn't be restored:");
+                    for (String problem : problems) MultiplayerLog.log().warn("  - " + problem);
+                    String list = String.join("; ", problems);
+                    if (list.length() > 150) list = list.substring(0, 150) + "...";
+                    notify(problems.size() + " things from the server's record couldn't be restored: " + list + " (the details are in starsector.log)");
+                }
+            } catch (Exception e) {
+                failJoin("Couldn't load your game as the server keeps it", e);
+                return;
+            }
+        } else {
+            recordToApply = null;
+            if (!local) MultiplayerLog.log().info("The server has no record of us yet: it starts from this game");
+        }
+        finishJoin(local);
+    }
+
+    /**
+     * The rest of joining, once the server's record of us is applied (or there's none for us): the server gets our
+     * state as it is now, and every later update is a difference from it. The host's own client sends no record and
+     * no fleet snapshot: its game is the world, the server's game has its fleet.
+     */
+    private void finishJoin(boolean local) {
+        CampaignFleetAPI own = Global.getSector().getPlayerFleet();
+        JSONObject fleet;
+        try {
+            //the record could have given us a new fleet: everyone knows ours by our client id (as executeTick does)
+            if (own != null && client.clientId != null && !client.clientId.equals(own.getId())) own.setId(client.clientId);
+            fleet = FleetSerializer.serializeFleet(own);
+        } catch (Exception e) {
+            if (!local) {
+                failJoin("Couldn't read our fleet to send it to the server", e);
+                return;
+            }
+            MultiplayerLog.log().error("Couldn't read our fleet: the first update sends all of it", e);
+            fleet = new JSONObject();
+        }
+        if (!local) {
+            JSONObject record;
+            try {
+                record = PlayerRecord.read(null);
+                //the record first: the server takes our fleet, faction, ... only once it has it
+                client.send(new JSONObject().put("commandId", "recordApplied").put("record", record).put("rev", 0).toString());
+                MultiplayerLog.log().info("SENDING PLAYER FLEET TO SERVER");
+                client.send(new JSONObject().put("commandId", "fleetSnapshot").put("fleet", fleet).toString());
+            } catch (Exception e) {
+                failJoin("Couldn't send our game to the server", e);
+                return;
+            }
+            try {
+                //the record may have taken us to another location than the one completeJoin asked about
+                WorldSync.requestOrbitSnapshotForLocation(own.getContainingLocation(), client);
+            } catch (Exception e) {
+                MultiplayerLog.log().warn("Couldn't ask for the orbits: " + e.getMessage());
+            }
+            recordSent = record;
+            recordRev = 0;
+            JSONObject storage = record.optJSONObject("storage");
+            storageSection = storage != null ? storage : new JSONObject();
+            streamingRecord = true;
+        }
+        //our fleet as the server was just sent it: the next update only has what changes after (a diff against how
+        //it was before the record, or when we last left, would add again ships the server's copy already has)
+        fleetSync.resetOwnFleet(fleet);
+        factionSent = null; //sent in full next frame
+        coloniesSent = null;
+        reputationSent = null; //the record's reputation isn't a change of ours: no "reputation changed" sound for it
+        client.recordSettled();
+    }
+
+    /** Joining can't finish faithfully: we leave, rather than play on with (and send) a half-loaded game. */
+    private void failJoin(String what, Exception e) {
+        MultiplayerLog.log().error(what + ": disconnecting", e);
+        String text = what + " (" + e.getMessage() + "): disconnected from the server. The details are in starsector.log";
+        notify(text);
+        try {
+            if (!Global.getSector().getCampaignUI().isShowingDialog()) Global.getSector().getCampaignUI().showMessageDialog(text);
+        } catch (Exception ignored) {
+        }
+        client.disconnect();
+    }
+
+    /**
+     * Our record to the server, kept live: the differences from the last one sent every second, in full every
+     * minute and when the server asks, so the server's copy is never far off however the connection ends. The
+     * storage section goes through every market: read in full every STORAGE_INTERVAL and as soon as a dialog closes.
+     * Things move in or out of storage in a dialog (a colony's also from its screen, read in full once it closes):
+     * meanwhile, that market's storage is read with the rest of the record every second, so a ship taken out is
+     * never in the fleet and in storage at once. Never throws: what can't be read now is tried again a second later.
+     */
+    private void streamRecord(float amount) {
+        recordTimer += amount;
+        storageTimer += amount;
+        fullRecordTimer += amount;
+        InteractionDialogAPI dialog = Global.getSector().getCampaignUI() == null ? null : Global.getSector().getCampaignUI().getCurrentInteractionDialog();
+        if (wasInDialog && dialog == null) storageTimer = STORAGE_INTERVAL; //just closed: read it all now
+        wasInDialog = dialog != null;
+        boolean showingScreen = Global.getSector().getCampaignUI() != null && Global.getSector().getCampaignUI().isShowingDialog();
+        if (wasShowingScreen && !showingScreen) storageTimer = STORAGE_INTERVAL;
+        wasShowingScreen = showingScreen;
+        if (storageTimer >= STORAGE_INTERVAL) {
+            storageTimer = 0f;
+            try {
+                storageSection = PlayerRecord.readStorage();
+            } catch (Exception e) {
+                recordError("storage", "Couldn't read our storage for the server's record: the last one read is sent", e);
+            }
+        }
+        if (recordTimer < RECORD_INTERVAL) return;
+        recordTimer = 0f;
+        SectorEntityToken target = dialog == null ? null : dialog.getInteractionTarget();
+        if (target != null && target.getMarket() != null) refreshStorage(target.getMarket());
+        sendRecord(fullRecordAsked || fullRecordTimer >= FULL_RECORD_INTERVAL);
+    }
+
+    /**
+     * One market's entry in the storage section, read again (the market we're at). A new section, not this one
+     * changed: the record last sent holds this one, and the next diff is taken against it.
+     */
+    private void refreshStorage(MarketAPI market) {
+        try {
+            JSONObject entry = PlayerRecord.readMarketStorage(market);
+            JSONObject section = new JSONObject();
+            if (storageSection != null) {
+                for (Iterator<?> it = storageSection.keys(); it.hasNext(); ) {
+                    String id = (String) it.next();
+                    section.put(id, storageSection.get(id));
+                }
+            }
+            if (entry == null) section.remove(market.getId());
+            else section.put(market.getId(), entry);
+            storageSection = section;
+        } catch (Exception e) {
+            recordError("marketStorage", "Couldn't read the storage of the market we're at for the server's record: the last one read is sent", e);
+        }
+    }
+
+    /**
+     * On leaving by the player's choice: our record in full, its storage read now, so the server keeps it exactly as
+     * we left it. Before the connection closes (ClientScripts.advance), on the game thread.
+     */
+    private void sendFinalRecord() {
+        try {
+            storageSection = PlayerRecord.readStorage();
+        } catch (Exception e) {
+            recordError("storage", "Couldn't read our storage for the server's record: the last one read is sent", e);
+        }
+        if (sendRecord(true)) MultiplayerLog.log().info("Sent our record to the server before leaving");
+    }
+
+    /**
+     * Our record now, to the server: in full, or the differences from the last one sent (nothing if there are none).
+     * One with no ship goes too: the fleet was just lost, and leaving before vanilla's respawn mustn't bring back the
+     * ships the server last heard of (the record is applied as it is, and the respawn follows). Returns whether it
+     * went (or needed nothing).
+     */
+    private boolean sendRecord(boolean full) {
+        try {
+            JSONObject now = PlayerRecord.read(storageSection);
+            JSONObject packet = new JSONObject();
+            if (full) {
+                packet.put("commandId", "playerRecord");
+                packet.put("rev", recordRev + 1);
+                packet.put("record", now);
+            } else {
+                JSONObject changes = JsonDiffUtility.getDifferences(recordSent, now);
+                if (changes.length() == 0) return true;
+                packet.put("commandId", "playerRecordUpdate");
+                packet.put("base", recordRev); //the revision the server must have for this diff to apply
+                packet.put("rev", recordRev + 1);
+                packet.put("changes", changes);
+            }
+            client.send(packet.toString());
+            recordRev++;
+            recordSent = now;
+            if (full) {
+                fullRecordAsked = false;
+                fullRecordTimer = 0f;
+            }
+            return true;
+        } catch (Exception e) {
+            recordError("read", "Couldn't send our record to the server (tried again every second)", e);
+            return false;
+        }
+    }
+
+    private void recordError(String kind, String what, Exception e) {
+        if (recordErrors.add(kind)) MultiplayerLog.log().error(what, e);
     }
 
     /**
@@ -805,7 +1137,7 @@ public class ClientScripts implements EveryFrameScript {
                 MultiplayerLog.log().info("Our fleet is new (" + own.getId() + "): it's " + client.clientId + " to the others again");
                 own.setId(client.clientId);
             }
-            fleetSync.sendOwnFleetUpdate(client);
+            fleetSync.sendOwnFleetUpdate(client); //nothing until the server's record of us is in (see FleetSync)
             if (client.isSelfHosted) {
                 //the host's own client shares the server's game, which is the world: its scripts must run
                 sectorScriptsUtility.restoreScripts();

@@ -4,7 +4,10 @@ import matlabmaster.multiplayer.MultiplayerLog;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.json.JSONException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
+import java.util.List;
 
 public class JsonDiffUtility {
 
@@ -71,13 +74,129 @@ public class JsonDiffUtility {
             Object v2 = arr2.opt(i);
             String indexKey = "[" + i + "]";
 
-            // Use opt to safely check existence vs null
-            if (v1 != null && (v2 == null && i >= arr2.length())) {
+            // Past either end, decide by the lengths rather than by the values: an element can be
+            // JSONObject.NULL (or a Java null), and comparing those as values would say "no change"
+            // although the array shrank or grew by that element.
+            if (i >= arr2.length()) {
                 safePut(arrayDiffs, indexKey, createInstruction("REMOVED", null, v1));
+            } else if (i >= arr1.length()) {
+                safePut(arrayDiffs, indexKey, createInstruction("UPDATE", v2, null));
             } else {
                 handleValueComparison(v1, v2, indexKey, arrayDiffs);
             }
         }
+    }
+
+    /**
+     * Applies a getDifferences(old, new) diff to target, a copy of old, so that target then holds the
+     * same data as new. The diff may have travelled as text (it is parsed back the same way).
+     * Throws when the diff does not fit target (a nested diff for a key target lacks, a bad array
+     * index), which means the two sides are out of step and the caller should resend in full.
+     * Target may be left half-patched then, so the caller must not keep using it as is.
+     * Values are copied in, never shared, so later patches of target cannot change the diff or
+     * the object it was taken from.
+     * Not for fleet diffs that went through FleetSerializer.replaceWeaponGroupsDiffsWithFullState:
+     * the full weapon group map put there is not a diff and would be merged wrongly.
+     */
+    public static void apply(JSONObject target, JSONObject diff) throws JSONException {
+        Iterator<?> keys = diff.keys();
+        while (keys.hasNext()) {
+            String key = (String) keys.next();
+            JSONObject change = diff.optJSONObject(key);
+            if (change == null) throw new JSONException("Diff entry \"" + key + "\" is not an object");
+            if (isInstruction(change)) {
+                if ("REMOVED".equals(change.getString("action"))) {
+                    target.remove(key);
+                } else {
+                    // put(key, NULL) keeps the key with a null value, unlike put(key, null) which removes it.
+                    target.put(key, copyValue(change.opt("value")));
+                }
+                continue;
+            }
+            Object current = target.opt(key);
+            if (current instanceof JSONObject object) {
+                apply(object, change);
+            } else if (current instanceof JSONArray array) {
+                applyToArray(array, change);
+            } else {
+                throw new JSONException("Diff changes inside \"" + key + "\", which the target has no object or array for");
+            }
+        }
+    }
+
+    /** An array's diff: "[i]" keys. Removals only ever come from the end, so they go last, highest index first. */
+    private static void applyToArray(JSONArray target, JSONObject diff) throws JSONException {
+        List<Integer> removed = new ArrayList<>();
+        Iterator<?> keys = diff.keys();
+        while (keys.hasNext()) {
+            String key = (String) keys.next();
+            int index = arrayIndex(key);
+            JSONObject change = diff.optJSONObject(key);
+            if (change == null) throw new JSONException("Diff entry \"" + key + "\" is not an object");
+            if (isInstruction(change)) {
+                if ("REMOVED".equals(change.getString("action"))) {
+                    removed.add(index);
+                } else {
+                    // Past the end, put() pads with NULL first: the indices between are set by their own entries.
+                    target.put(index, copyValue(change.opt("value")));
+                }
+                continue;
+            }
+            Object current = target.opt(index);
+            if (current instanceof JSONObject object) {
+                apply(object, change);
+            } else if (current instanceof JSONArray array) {
+                applyToArray(array, change);
+            } else {
+                throw new JSONException("Diff changes inside element " + key + ", which the target has no object or array for");
+            }
+        }
+        removed.sort(Collections.reverseOrder());
+        for (int index : removed) {
+            if (index < target.length()) target.remove(index);
+        }
+    }
+
+    private static int arrayIndex(String key) throws JSONException {
+        if (key.length() > 2 && key.charAt(0) == '[' && key.charAt(key.length() - 1) == ']') {
+            try {
+                int index = Integer.parseInt(key.substring(1, key.length() - 1));
+                if (index >= 0) return index;
+            } catch (NumberFormatException ignored) { }
+        }
+        throw new JSONException("Bad array index in diff: " + key);
+    }
+
+    /**
+     * Whether a diff entry is an instruction rather than a nested diff. A nested diff's values are
+     * always objects (instructions or deeper diffs), so one never has a String "action" even when
+     * the data it changes has a field called "action": that field's change is itself an object.
+     */
+    private static boolean isInstruction(JSONObject change) {
+        Object action = change.opt("action");
+        return action instanceof String
+                && ("ADDED".equals(action) || "REMOVED".equals(action) || "UPDATE".equals(action))
+                && change.has("value") && change.has("oldValue");
+    }
+
+    /** A deep copy of a JSON value, so nothing is shared between the diff and the patched object. */
+    private static Object copyValue(Object value) throws JSONException {
+        if (value == null) return JSONObject.NULL;
+        if (value instanceof JSONObject object) {
+            JSONObject copy = new JSONObject();
+            Iterator<?> keys = object.keys();
+            while (keys.hasNext()) {
+                String key = (String) keys.next();
+                copy.put(key, copyValue(object.opt(key)));
+            }
+            return copy;
+        }
+        if (value instanceof JSONArray array) {
+            JSONArray copy = new JSONArray();
+            for (int i = 0; i < array.length(); i++) copy.put(copyValue(array.opt(i)));
+            return copy;
+        }
+        return value; //strings, numbers, booleans and NULL are immutable
     }
 
     /** An "ADDED" / "REMOVED" / "UPDATE" instruction in the same format getDifferences() produces. */

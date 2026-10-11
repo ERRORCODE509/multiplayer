@@ -37,6 +37,9 @@ public class FleetSync
     }
 
     public void sendOwnFleetUpdate(Client client) throws JSONException {
+        //not while joining (every tick, and a dialog opening): the server's record of us is about to replace this
+        //fleet, and the next update after that is a diff from it (resetOwnFleet)
+        if (client.isAwaitingRecord()) return;
         JSONObject newFleet = FleetSerializer.serializeFleet(Global.getSector().getPlayerFleet());
         JSONObject diffs = JsonDiffUtility.getDifferences(lastTickFleet, newFleet);
         FleetSerializer.replaceWeaponGroupsDiffsWithFullState(diffs, newFleet);

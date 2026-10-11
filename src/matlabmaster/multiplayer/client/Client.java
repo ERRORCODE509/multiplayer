@@ -10,7 +10,6 @@ import matlabmaster.multiplayer.updates.WorldSync;
 import matlabmaster.multiplayer.utils.CompatibilityUtility;
 import matlabmaster.multiplayer.utils.FleetHelper;
 import matlabmaster.multiplayer.utils.ColonyMirrors;
-import matlabmaster.multiplayer.utils.FleetSerializer;
 import matlabmaster.multiplayer.utils.PlayerIdentity;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -34,6 +33,16 @@ public class Client {
     private volatile boolean settingsApplied = false;
     /** Set by connect(); the rest of joining touches the game, so ClientScripts finishes it on the game thread. */
     private volatile boolean joinPending = false;
+    /**
+     * Between completeJoin() and the server's record of us being applied (ClientScripts, "yourRecord"): this save's
+     * fleet, faction, colonies and the rest of what's ours are about to be overwritten, so none of it is sent.
+     */
+    private volatile boolean awaitingRecord = false;
+    /**
+     * The player asked to leave (the window's DISCONNECT, another thread): ClientScripts sends our record's last state
+     * first, then disconnects on the game thread (see requestDisconnectAfterRecord).
+     */
+    private final java.util.concurrent.atomic.AtomicBoolean disconnectRequested = new java.util.concurrent.atomic.AtomicBoolean(false);
     public boolean isSelfHosted = false;
     /** The account to log in with (the join window's fields). */
     public volatile String user, password;
@@ -77,6 +86,7 @@ public class Client {
         }
         host = ip;
         this.port = port;
+        disconnectRequested.set(false); //an earlier session's
         socket = SecureLink.socket(ip, port); //encrypted and connected when the multiplayer agent runs, else plain
         if (!socket.isConnected()) socket.connect(new InetSocketAddress(ip, port), 5000);
 
@@ -109,6 +119,22 @@ public class Client {
     }
 
     public boolean isJoinPending() { return joinPending; }
+
+    /** Whether we're still waiting for the server's record of us (nothing of ours is sent meanwhile). */
+    public boolean isAwaitingRecord() { return awaitingRecord; }
+
+    /** The server's record of us is applied (or there's none for us): what's ours is sent from now on. */
+    public void recordSettled() { awaitingRecord = false; }
+
+    /**
+     * Leave once the server has our record as it is now: ClientScripts sends it in full on the next frame, then
+     * disconnects. A ship just taken out of storage would otherwise be in both places in the server's copy. Any
+     * thread; the caller disconnects anyway if the game thread doesn't run soon (in a battle, say).
+     */
+    public void requestDisconnectAfterRecord() { disconnectRequested.set(true); }
+
+    /** Whether a disconnect was asked for since the last call (game thread, ClientScripts). */
+    public boolean takeDisconnectRequest() { return disconnectRequested.getAndSet(false); }
 
     /**
      * The title screen's login (see TitleJoin): connects as joining does (encryption, the greeting, the same game
@@ -151,11 +177,14 @@ public class Client {
 
     /**
      * The part of joining that touches the game. Called by ClientScripts on the game thread, on the first
-     * frame after connect(), before any received message is processed.
+     * frame after connect(), before any received message is processed. Our own state (fleet, faction, ...) isn't
+     * sent here: the server answers the hello with its record of us, which overwrites this save's first, and
+     * ClientScripts sends it once that's done (see awaitingRecord).
      */
     public void completeJoin() {
         if (!joinPending) return;
         joinPending = false;
+        awaitingRecord = true;
         Global.getSector().getPlayerFleet().setId(clientId);
 
         // Apply multiplayer-only settings (reverted on disconnect)
@@ -166,7 +195,7 @@ public class Client {
         settingsApplied = true;
 
         try {
-            //who we are, first: the server gives us our faction from it, and our fleet is sent in that faction
+            //who we are, first: the server gives us our faction and its record of us from it
             JSONObject hello = new JSONObject();
             hello.put("commandId", "hello");
             hello.put("playerId", PlayerIdentity.id());
@@ -184,12 +213,7 @@ public class Client {
             //the other players' colonies in this game are the server's to say: any from an earlier session go
             ColonyMirrors.removeAll();
             try {
-                //send our fleet to the server so that it knows about it
-                JSONObject packet = new JSONObject();
-                MultiplayerLog.log().info("SENDING PLAYER FLEET TO SERVER");
-                packet.put("commandId","fleetSnapshot");
-                packet.put("fleet",FleetSerializer.serializeFleet(Global.getSector().getPlayerFleet()));
-                send(packet.toString());
+                //our fleet goes to the server once its record of us is applied (ClientScripts.finishJoin)
 
                 //prepare for all fleet syncing
                 MultiplayerLog.log().warn("Joining replaces every AI fleet in this game with the host's. Play multiplayer on a copy of your save, not your main one.");
@@ -199,7 +223,7 @@ public class Client {
 
                 //ask for all the sectors fleet snapshot
                 MultiplayerLog.log().info("REQUESTING FLEETS SNAPSHOT");
-                packet = new JSONObject();
+                JSONObject packet = new JSONObject();
                 packet.put("commandId","requestAllFleetsSnapshot");
                 send(packet.toString());
 
@@ -283,7 +307,8 @@ public class Client {
         out.println(message);
     }
 
-    private void handleDisconnect() {
+    /** Synchronized: the read thread, the game thread and the window's can all end the connection at once. */
+    private synchronized void handleDisconnect() {
         if (isConnected) {
             boolean selfHosted = isSelfHosted;
             isSelfHosted = false;
@@ -293,6 +318,8 @@ public class Client {
 
 
             joinPending = false;
+            awaitingRecord = false;
+            disconnectRequested.set(false); //done, one way or the other
             if (settingsApplied) { //never overwrite the player's settings with defaults if joining never finished
                 settingsApplied = false;
                 Global.getSettings().setBoolean("idleWhileWindowNotVisible", savedIdleWhileWindowNotVisible);//disable pause while window is not focused

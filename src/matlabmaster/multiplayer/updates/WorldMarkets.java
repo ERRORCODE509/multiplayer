@@ -11,6 +11,7 @@ import com.fs.starfarer.api.campaign.econ.SubmarketAPI;
 import com.fs.starfarer.api.campaign.rules.MemoryAPI;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.utils.ColonyMirrors;
+import matlabmaster.multiplayer.utils.PlayerRecord;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -141,6 +142,8 @@ public class WorldMarkets {
         entity.setMarket(market);
         entity.setFaction(json.getString("faction"));
         copies.put(id, market);
+        //our storage there, from the server's record of us: the copy didn't exist yet when the record was applied
+        PlayerRecord.placeStorage(market);
         MultiplayerLog.log().info("The world's " + json.getString("name") + " (" + json.getString("faction") + ") is here too" + (made ? " (with its station)" : ""));
     }
 

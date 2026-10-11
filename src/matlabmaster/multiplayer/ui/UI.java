@@ -356,7 +356,23 @@ public class UI extends JFrame {
 
     private void stopAll() {
         if (server.isRunning) server.stop();
-        if (client.isConnected()) client.disconnect();
+        if (client.isConnected() && !client.isSelfHosted) {
+            //our record's last state goes to the server first (ClientScripts sends it, then disconnects on the game
+            //thread). That thread doesn't run during a battle: after 2 seconds we leave without it
+            client.requestDisconnectAfterRecord();
+            new Thread(() -> {
+                try {
+                    for (int i = 0; i < 20 && client.isConnected(); i++) Thread.sleep(100);
+                } catch (InterruptedException ignored) {
+                }
+                if (client.isConnected()) {
+                    MultiplayerLog.log().warn("The game didn't send our record within 2 seconds (in a battle?): disconnected without it");
+                    client.disconnect();
+                }
+            }, "Client-Disconnect").start();
+        } else if (client.isConnected()) {
+            client.disconnect();
+        }
         isRunning = false;
         updateButtonStyle();
     }

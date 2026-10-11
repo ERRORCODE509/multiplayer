@@ -57,6 +57,11 @@ public class WorldEntities {
             if (EntitySync.isPresent(entity)) continue;
             it.remove();
             seen.remove(id);
+            if (client.isAwaitingRecord()) {
+                //salvaged while our game loads from the server: the record overwrites the loot, so the world keeps it
+                MultiplayerLog.log().info("Salvaged " + (entity == null ? id : entity.getName()) + " while our game loads from the server: the world isn't told");
+                continue;
+            }
             try {
                 client.send(new JSONObject().put("commandId", "entityGone").put("id", id).toString());
                 MultiplayerLog.log().info("Salvaged " + (entity == null ? id : entity.getName()) + ": the world hears of it");

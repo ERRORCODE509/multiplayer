@@ -1,6 +1,7 @@
 package matlabmaster.multiplayer.utils;
 
 import com.fs.starfarer.api.Global;
+import matlabmaster.multiplayer.MultiplayerLog;
 
 import java.util.Map;
 import java.util.UUID;
@@ -21,6 +22,20 @@ public class PlayerIdentity {
             persistent.put(KEY, id);
         }
         return (String) id;
+    }
+
+    /**
+     * The id the server knows us by (its account's, see server Accounts), from its reply to our hello: this save's
+     * from now on. A new game made for an existing account, or a save that joined as someone else before, has
+     * another one, and our own colonies, raids, ... are told apart from the other players' by it.
+     */
+    public static void adopt(String playerId) {
+        if (playerId == null || playerId.isEmpty()) return;
+        Map<String, Object> persistent = Global.getSector().getPersistentData();
+        Object before = persistent.get(KEY);
+        if (playerId.equals(before)) return;
+        persistent.put(KEY, playerId);
+        MultiplayerLog.log().info("This game is the server's player " + playerId + " now (it was " + before + ")");
     }
 
     /** The player's name, for the server's logs. */
