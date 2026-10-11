@@ -14,9 +14,11 @@ import com.fs.starfarer.api.impl.campaign.NewGameDialogPluginImpl;
 import com.fs.starfarer.api.impl.campaign.ids.Factions;
 import com.fs.starfarer.api.impl.campaign.procgen.StarAge;
 import com.fs.starfarer.api.impl.campaign.rulecmd.NGCAddStandardStartingScript;
+import com.fs.starfarer.api.impl.campaign.tutorial.CampaignTutorialScript;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.UserError;
 import matlabmaster.multiplayer.ui.UI;
+import matlabmaster.multiplayer.utils.NewGameOptions;
 import org.json.JSONObject;
 
 import java.io.IOException;
@@ -38,7 +40,8 @@ import java.util.regex.Pattern;
  * 2. The title screen's next frame (titleFrame, from AutoLoadPlugin: the game thread): this game's save for that
  *    server and account loads (remembered when it last joined, see joined), if it's still there and has the
  *    host's seed; else the multiplayer agent makes a new game (agent NewGameMaker), filled in here (fill): the
- *    host's seed, the username as the character's name, a default portrait and a stand-in start.
+ *    host's seed and other new-game choices (NewGameOptions: its difficulty, Nexerelin's options), the username as
+ *    the character's name, the gender and portrait picked in the window, and a stand-in start.
  * 3. That game's first campaign frame (gameLoaded): it joins, as CONNECT does in a loaded game.
  * The agent does the loading and making (the game forbids mods the reflection it takes): the launcher's START MY
  * GAME starts it. Without it, a game has to be loaded first, as before.
@@ -58,17 +61,27 @@ public class TitleJoin {
     private static final String[] START_SHIPS = {"hammerhead_Balanced", "drover_Starting", "centurion_Starting", "lasher_CS", "dram_Light"};
     private static final float START_CREDITS = 2000f + 18000f;
 
+    private static final String PORTRAIT_IMAGE_KEY = "multiplayer.portraitImage";
+
     /** A login whose game is still to be made or loaded. */
     private static class Login {
         final String host, user, password, seed;
         final int port;
+        /** What the server's world was made with besides the seed (NewGameOptions; null from an older server). */
+        final JSONObject options;
+        /** The character, for a new game: the window's choice. A null portrait: the gender's first. */
+        final FullName.Gender gender;
+        final String portrait;
 
-        Login(String host, int port, String user, String password, String seed) {
+        Login(String host, int port, String user, String password, JSONObject hostGame, FullName.Gender gender, String portrait) {
             this.host = host;
             this.port = port;
             this.user = user;
             this.password = password;
-            this.seed = seed;
+            this.seed = hostGame.optString("seed");
+            this.options = hostGame.optJSONObject("newGame");
+            this.gender = gender == FullName.Gender.FEMALE ? FullName.Gender.FEMALE : FullName.Gender.MALE;
+            this.portrait = portrait;
         }
     }
 
@@ -86,16 +99,16 @@ public class TitleJoin {
     }
 
     /** The window's CONNECT at the title screen (not the game thread): the login is checked here, the game comes next frame. */
-    public static void login(Client client, String host, int port, String user, String password) throws IOException {
+    public static void login(Client client, String host, int port, String user, String password, FullName.Gender gender, String portrait) throws IOException {
         if (!available()) {
             throw new UserError("Logging in from the title screen needs the multiplayer agent: start the game with the multiplayer launcher (START MY GAME), or load a game first and connect from it");
         }
         //one at a time: CONNECT clicked again while the server checks the login (which takes a moment)
         if (waiting != null || joining != null || !checking.compareAndSet(false, true)) throw new UserError("Already logging in: wait for the game to load");
         try {
-            String seed = client.checkLoginFromTitle(host, port, user, password);
+            JSONObject hostGame = client.checkLoginFromTitle(host, port, user, password);
             MultiplayerLog.log().info("Logged in to " + host + ":" + port + " as " + user + ": getting your game ready");
-            waiting = new Login(host, port, user, password, seed);
+            waiting = new Login(host, port, user, password, hostGame, gender, portrait);
         } finally {
             checking.set(false);
         }
@@ -117,9 +130,6 @@ public class TitleJoin {
         } else {
             MultiplayerLog.log().info("No game of yours for " + login.host + ":" + login.port + " here: making one from the server's seed " + login.seed);
             if (Global.getSettings().isDevMode()) MultiplayerLog.log().warn("Devmode is on: the sector may not match the server's (devmode ignores the seed)");
-            if (Global.getSettings().getModManager().isModEnabled("nexerelin")) {
-                MultiplayerLog.log().warn("Nexerelin's new-game options are left at its defaults: the server's world must have been made with them too");
-            }
             BiConsumer<Object, Object> filler = (data, dialog) -> fill((CharacterCreationData) data, (InteractionDialogAPI) dialog, login);
             error = ((Function<BiConsumer<Object, Object>, String>) System.getProperties().get(NEW_GAME_KEY)).apply(filler);
         }
@@ -209,16 +219,31 @@ public class TitleJoin {
         return user.trim().toLowerCase() + "@" + host.trim() + ":" + port;
     }
 
+    /** The portraits a new character of this gender can have (the window's choice), as the new-game screen lists them. */
+    public static List<String> portraits(FullName.Gender gender) {
+        return Global.getSettings().getFactionSpec(Factions.PLAYER).getAllPortraits(gender);
+    }
+
+    /** A portrait's picture for the window (the agent reads it: java.awt.Image), or null without the agent. */
+    @SuppressWarnings("unchecked")
+    public static Object portraitImage(String portrait) {
+        Object reader = System.getProperties().get(PORTRAIT_IMAGE_KEY);
+        return reader instanceof Function ? ((Function<String, Object>) reader).apply(portrait) : null;
+    }
+
     /**
      * What the new-game screens would set (the agent's NewGameMaker, the game thread): the options panel's part
-     * (name, portrait, the sector's seed, age and size), then what vanilla's rule commands do for the stand-in start.
+     * (name, gender, portrait, the sector's seed, age and size), what vanilla's rule commands do for the stand-in
+     * start, then the server's other choices (NewGameOptions: the difficulty, Nexerelin's options).
      */
     private static void fill(CharacterCreationData data, InteractionDialogAPI dialog, Login login) {
-        data.getCharacterData().setName(login.user.trim(), FullName.Gender.MALE);
-        List<String> portraits = Global.getSettings().getFactionSpec(Factions.PLAYER).getAllPortraits(FullName.Gender.MALE);
-        if (!portraits.isEmpty()) data.getCharacterData().setPortraitName(portraits.get(0));
+        data.getCharacterData().setName(login.user.trim(), login.gender);
+        List<String> portraits = portraits(login.gender);
+        if (login.portrait != null && portraits.contains(login.portrait)) data.getCharacterData().setPortraitName(login.portrait);
+        else if (!portraits.isEmpty()) data.getCharacterData().setPortraitName(portraits.get(0));
         data.setCampaignHelpEnabled(SharedSettings.optBoolean(NewGameDialogPluginImpl.CAMPAIGN_HELP_POPUPS_OPTION_CHECKED, true));
         applySeed(data, login.seed);
+        boolean nexerelin = NewGameOptions.nexerelin();
 
         //the rule commands read the data and their choices from the dialog's local memory
         MemoryAPI memory = Global.getFactory().createMemory();
@@ -230,13 +255,21 @@ public class TitleJoin {
         for (String variant : START_SHIPS) data.addStartingFleetMember(variant, FleetMemberType.SHIP);
         memory.set("$ngcMercSelected", true);
         memory.set("$ngcAddOfficer", true);
-        memory.set("$ngcSkipTutorial", true);
+        //Nexerelin ends the tutorial's Galatia story itself (its random sector has no Galatia): vanilla's skip would
+        //end it a second time
+        memory.set("$ngcSkipTutorial", !nexerelin);
         data.setDifficulty("normal");
         data.getPerson().getStats().addPoints(1);
         data.setStartingLocationName("Corvus");
         data.getStartingCoordinates().set(-2500, 3000);
         //vanilla's own: crew, supplies, fuel, the officer, the skipped tutorial's contacts and reputation
         new NGCAddStandardStartingScript().execute(null, dialog, new ArrayList<>(), memoryMap);
+        if (nexerelin) {
+            //not skipping the tutorial made vanilla's script ask for its respawn at Galatia: there's no tutorial
+            data.addScriptBeforeTimePass(() -> Global.getSector().getMemoryWithoutUpdate().unset(CampaignTutorialScript.USE_TUTORIAL_RESPAWN));
+        }
+        NewGameOptions.apply(data, dialog, memoryMap, login.options);
+        if (login.options == null) MultiplayerLog.log().warn("The server didn't send its new-game options (an older version): this game uses the defaults");
         data.setDone(true);
     }
 

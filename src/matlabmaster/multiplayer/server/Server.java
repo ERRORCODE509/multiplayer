@@ -20,6 +20,7 @@ import matlabmaster.multiplayer.UserError;
 import matlabmaster.multiplayer.utils.CompatibilityUtility;
 import matlabmaster.multiplayer.utils.FleetHelper;
 import matlabmaster.multiplayer.utils.FleetSerializer;
+import matlabmaster.multiplayer.utils.NewGameOptions;
 import matlabmaster.multiplayer.updates.WorldSync;
 import com.fs.starfarer.api.campaign.CampaignFleetAPI;
 import com.fs.starfarer.api.campaign.LocationAPI;
@@ -191,6 +192,8 @@ public class Server {
         if (isRunning) return;
         try {
             hostGame = CompatibilityUtility.describeThisGame(); //the loaded game can't change while hosting (quitting to the menu stops the server)
+            //and what a player's first game is made with besides the seed (client TitleJoin)
+            hostGame.put("newGame", NewGameOptions.describeWorld());
         } catch (JSONException e) {
             throw new UserError("Couldn't read this game's version, seed and mods: " + e.getMessage());
         }

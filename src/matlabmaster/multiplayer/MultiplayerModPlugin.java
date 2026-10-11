@@ -11,6 +11,7 @@ import matlabmaster.multiplayer.listeners.MultiplayerWatchdog;
 import matlabmaster.multiplayer.server.Server;
 import matlabmaster.multiplayer.server.ServerScripts;
 import matlabmaster.multiplayer.ui.UI;
+import matlabmaster.multiplayer.utils.NewGameOptions;
 import matlabmaster.multiplayer.utils.PlayerEncounters;
 import matlabmaster.multiplayer.utils.PlayerFactions;
 
@@ -56,6 +57,14 @@ public class MultiplayerModPlugin extends BaseModPlugin {
             uiInstance.setTitle("Starsector Multiplayer - server instance (port " + SERVER_MODE_PORT + ")");
             MultiplayerLog.log().info("SERVER INSTANCE: load the world save (Load Game) and hosting starts by itself on port " + SERVER_MODE_PORT);
         }
+    }
+
+    @Override
+    public void onNewGame() {
+        super.onNewGame();
+        //what this world is made with besides its seed, kept in its save: if it's ever hosted, the players' games
+        //are made with the same (client TitleJoin)
+        NewGameOptions.recordNewWorld();
     }
 
     @Override

@@ -7,6 +7,7 @@ import java.awt.*;
 import com.fs.starfarer.api.GameState;
 import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.CampaignClockAPI;
+import com.fs.starfarer.api.characters.FullName;
 import matlabmaster.multiplayer.MultiplayerLog;
 import matlabmaster.multiplayer.UserError;
 import matlabmaster.multiplayer.server.Server;
@@ -23,6 +24,10 @@ public class UI extends JFrame {
     private JTextField portField;
     private JTextField userField;
     private JPasswordField passwordField;
+    private JButton characterButton;
+    /** The character for a new game made by a login from the title screen; a null portrait is the gender's first. */
+    private volatile FullName.Gender characterGender = FullName.Gender.MALE;
+    private volatile String characterPortrait;
     private JComboBox<String> modeSelector;
     private JLabel serverTimeLabel;
     private JLabel playersLabel;
@@ -97,7 +102,13 @@ public class UI extends JFrame {
         passwordField.setEnabled(false);
         configPanel.add(new JLabel(" User: ")); configPanel.add(userField);
         configPanel.add(new JLabel(" Password: ")); configPanel.add(passwordField);
-        
+        //a new game made for a first login from the title screen (TitleJoin): the character's gender and portrait
+        characterButton = new JButton("CHARACTER");
+        characterButton.setEnabled(false);
+        characterButton.setToolTipText("Your character's gender and portrait, if this login makes you a new game (your first login to a server from the title screen)");
+        characterButton.addActionListener(e -> pickCharacter());
+        configPanel.add(characterButton);
+
         // --- SERVER TIME CLOCK ---
         serverTimeLabel = new JLabel("Disconnected");
         serverTimeLabel.setForeground(Color.BLACK);
@@ -158,6 +169,7 @@ public class UI extends JFrame {
         ipField.setEnabled(isJoin);
         userField.setEnabled(isJoin);
         passwordField.setEnabled(isJoin);
+        characterButton.setEnabled(isJoin);
         hostDedicatedButton.setVisible(!isJoin);
         hostCurrentButton.setVisible(!isJoin);
         actionButton.setVisible(isJoin);
@@ -220,7 +232,7 @@ public class UI extends JFrame {
                 //no game yet: log in, and the game for this server is loaded or made, then joins (TitleJoin)
                 new Thread(() -> {
                     try {
-                        TitleJoin.login(client, ip, connectPort, user, password);
+                        TitleJoin.login(client, ip, connectPort, user, password, characterGender, characterPortrait);
                     } catch (UserError e) {
                         MultiplayerLog.log().warn(e.getMessage());
                     } catch (Exception ex) {
@@ -253,6 +265,93 @@ public class UI extends JFrame {
                 client.disconnect();
             }
         }).start();
+    }
+
+    /**
+     * The character a login from the title screen makes, if it makes a new game: gender and portrait, as the
+     * new-game screen offers them (the player faction's portraits). The pictures need the multiplayer agent (the
+     * game forbids mods reading the files); without it, their names.
+     */
+    private void pickCharacter() {
+        JDialog dialog = new JDialog(this, "Character for a new game", true);
+        JComboBox<String> gender = new JComboBox<>(new String[]{"Male", "Female"});
+        gender.setSelectedIndex(characterGender == FullName.Gender.FEMALE ? 1 : 0);
+        JLabel picture = new JLabel("", SwingConstants.CENTER);
+        picture.setPreferredSize(new Dimension(160, 160));
+        JLabel counter = new JLabel("", SwingConstants.CENTER);
+        java.util.List<String> portraits = new java.util.ArrayList<>();
+        int[] index = {0};
+        java.util.Map<String, Icon> icons = new java.util.HashMap<>();
+        Runnable show = () -> {
+            if (portraits.isEmpty()) {
+                picture.setIcon(null);
+                picture.setText("No portraits");
+                counter.setText("");
+                return;
+            }
+            String portrait = portraits.get(index[0]);
+            Icon icon = icons.computeIfAbsent(portrait, p -> {
+                Object image = TitleJoin.portraitImage(p);
+                return image instanceof Image ? new ImageIcon(((Image) image).getScaledInstance(160, 160, Image.SCALE_SMOOTH)) : null;
+            });
+            picture.setIcon(icon);
+            picture.setText(icon == null ? portrait.substring(portrait.lastIndexOf('/') + 1) : "");
+            counter.setText((index[0] + 1) + " / " + portraits.size());
+        };
+        Runnable list = () -> {
+            portraits.clear();
+            try {
+                portraits.addAll(TitleJoin.portraits(gender.getSelectedIndex() == 1 ? FullName.Gender.FEMALE : FullName.Gender.MALE));
+            } catch (RuntimeException e) {
+                MultiplayerLog.log().error("Couldn't list the portraits", e);
+            }
+            index[0] = Math.max(0, portraits.indexOf(characterPortrait));
+            show.run();
+        };
+        gender.addActionListener(e -> list.run());
+        JButton previous = new JButton("<");
+        JButton next = new JButton(">");
+        previous.addActionListener(e -> {
+            if (portraits.isEmpty()) return;
+            index[0] = (index[0] + portraits.size() - 1) % portraits.size();
+            show.run();
+        });
+        next.addActionListener(e -> {
+            if (portraits.isEmpty()) return;
+            index[0] = (index[0] + 1) % portraits.size();
+            show.run();
+        });
+        JButton ok = new JButton("OK");
+        ok.addActionListener(e -> {
+            characterGender = gender.getSelectedIndex() == 1 ? FullName.Gender.FEMALE : FullName.Gender.MALE;
+            characterPortrait = portraits.isEmpty() ? null : portraits.get(index[0]);
+            MultiplayerLog.log().info("New-game character: " + characterGender.name().toLowerCase() + ", portrait " + characterPortrait);
+            dialog.dispose();
+        });
+        JButton cancel = new JButton("Cancel");
+        cancel.addActionListener(e -> dialog.dispose());
+
+        JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        top.add(new JLabel("Gender: "));
+        top.add(gender);
+        JPanel middle = new JPanel(new BorderLayout(5, 5));
+        middle.add(previous, BorderLayout.WEST);
+        middle.add(picture, BorderLayout.CENTER);
+        middle.add(next, BorderLayout.EAST);
+        middle.add(counter, BorderLayout.SOUTH);
+        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        bottom.add(ok);
+        bottom.add(cancel);
+        JPanel content = new JPanel(new BorderLayout(5, 5));
+        content.setBorder(new EmptyBorder(10, 10, 10, 10));
+        content.add(top, BorderLayout.NORTH);
+        content.add(middle, BorderLayout.CENTER);
+        content.add(bottom, BorderLayout.SOUTH);
+        dialog.setContentPane(content);
+        list.run();
+        dialog.pack();
+        dialog.setLocationRelativeTo(this);
+        dialog.setVisible(true);
     }
 
     private void stopAll() {

@@ -113,10 +113,11 @@ public class Client {
     /**
      * The title screen's login (see TitleJoin): connects as joining does (encryption, the greeting, the same game
      * version and mods), asks the server whether this account would be let in, and disconnects. Nothing is joined:
-     * the game made or loaded for it joins afterwards, as usual. Returns the host's seed; a UserError if refused.
+     * the game made or loaded for it joins afterwards, as usual. Returns the host's game (CompatibilityUtility: its
+     * seed, and "newGame", what a new game for it is made with); a UserError if refused.
      * Not on the game thread (the window's). Its own connection, not this client's: it's not joining.
      */
-    public String checkLoginFromTitle(String ip, int port, String user, String password) throws IOException {
+    public JSONObject checkLoginFromTitle(String ip, int port, String user, String password) throws IOException {
         if (isConnected) throw new UserError("Already connected to a server");
         Socket socket = SecureLink.socket(ip, port);
         try {
@@ -136,7 +137,7 @@ public class Client {
                 JSONObject reply = new JSONObject(line);
                 if (!"loginChecked".equals(reply.optString("commandId"))) continue;
                 if (!reply.optBoolean("ok")) throw new UserError("Login refused: " + reply.optString("reason"));
-                return hostGame.optString("seed");
+                return hostGame;
             }
             throw new UserError("The server closed the connection before answering the login");
         } catch (SocketTimeoutException e) {

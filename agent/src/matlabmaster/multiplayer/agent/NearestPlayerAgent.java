@@ -43,12 +43,14 @@ public class NearestPlayerAgent {
                 "matlabmaster.multiplayer.agent.ClassPatcher", "matlabmaster.multiplayer.agent.ClassPatcher$Target",
                 "matlabmaster.multiplayer.agent.SaveLoader", "matlabmaster.multiplayer.agent.NewGameMaker",
                 "matlabmaster.multiplayer.agent.NewGameMaker$DoNothing", "matlabmaster.multiplayer.agent.SecureSockets",
-                "matlabmaster.multiplayer.agent.SecureSockets$PinningTrust", "matlabmaster.multiplayer.agent.Passwords");
+                "matlabmaster.multiplayer.agent.SecureSockets$PinningTrust", "matlabmaster.multiplayer.agent.Passwords",
+                "matlabmaster.multiplayer.agent.PortraitImages");
         System.getProperties().put(NearestPlayer.ACTIVE_KEY, Boolean.TRUE);
         //loading a save from the title screen without clicking through it (the server instance: see SaveLoader)
         SaveLoader.install();
         //and making a new game there with no new-game screens (a player's first login to a server: see NewGameMaker)
         System.getProperties().put(NewGameMaker.KEY, new NewGameMaker());
+        System.getProperties().put(PortraitImages.KEY, new PortraitImages()); //and the pictures for its character choice
         //the encrypted multiplayer connection (the mod can't do TLS itself: see SecureSockets)
         SecureSockets.install();
         Passwords.install(); //and the server's account passwords

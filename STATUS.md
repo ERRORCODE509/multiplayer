@@ -23,11 +23,14 @@ token budget runs out between sessions, so work must always be resumable from he
 ```
 cd /d/Software/starsector_modding/multiplayer/dev
 S=<scratch dir>; C="C:/Program Files (x86)/Fractal Softworks/Starsector/starsector-core"
-CP=$(for j in starfarer.api.jar starfarer_obf.jar json.jar lwjgl.jar lwjgl_util.jar log4j-1.2.9.jar xstream-1.4.10.jar fs.common_obf.jar; do printf "%s;" "$C/$j"; done)"jars/libs/compare-utils-1.1.0.jar"
+NEX="C:/Program Files (x86)/Fractal Softworks/Starsector/mods/Nexerelin-0.12.2c/jars/ExerelinCore.jar"
+CP=$(for j in starfarer.api.jar starfarer_obf.jar json.jar lwjgl.jar lwjgl_util.jar log4j-1.2.9.jar xstream-1.4.10.jar fs.common_obf.jar; do printf "%s;" "$C/$j"; done)"jars/libs/compare-utils-1.1.0.jar;$NEX"
 rm -rf "$S" && mkdir -p "$S/mod" && javac --release 17 -nowarn -encoding UTF-8 -d "$S/mod" -cp "$CP" $(find src -name '*.java')
 (cd src && find . -type f ! -name '*.java' -exec cp --parents {} "$S/mod/" \;) && jar cf jars/multiplayer.jar -C "$S/mod" .
 ```
 - The jars are committed (CI doesn't build them): rebuild `jars/multiplayer.jar` with every source change.
+- Nexerelin's jar is only for compiling `utils/NexerelinNewGame` (the one class that names Nexerelin's; only
+  loaded when it's enabled, so the mod still runs without it). Another Nexerelin version: point `NEX` at it.
 - Agent (`agent/src`, -> `launcher/MultiplayerAgent.jar`, manifest `Premain-Class`): compile against
   `starfarer.api.jar;lwjgl_util.jar`. Launcher (`launcher/src` -> `launcher/MultiplayerLauncher.jar`, `Main-Class`).
 - **The jars are locked while any game or the launcher runs** (check `Get-Process java,javaw`): ask the user to close
@@ -130,10 +133,18 @@ Unlicense, as its developer stated (also in `LICENSE`).
   still has it and the server's seed is the same; else the agent's `NewGameMaker` ("multiplayer.newGame") makes a
   new game: `CampaignGameManager`'s static String (CharacterCreationData impl, CampaignState), found by signature
   (names differ between the Windows and Linux builds), its data made with the impl's no-arg constructor and filled
-  by `TitleJoin.fill` through the API: name = username, first player-faction male portrait, the server's seed
+  by `TitleJoin.fill` through the API: name = username, the gender and portrait picked with the window's CHARACTER
+  button (player-faction portraits; pictures read by the agent's `PortraitImages`, "multiplayer.portraitImage"),
+  the server's seed
   string parsed as vanilla's options panel writes it (age Y/A/O/M, size S/N, "-", seed), and the stand-in start:
   vanilla's mercenary start, normal difficulty, tutorial skipped (vanilla's own `NGCAddStandardStartingScript` run
-  with the agent's do-nothing InteractionDialogAPI proxy). Then `onGameLoad` -> `TitleJoin.gameLoaded`: the first
+  with the agent's do-nothing InteractionDialogAPI proxy), then the server's other new-game choices
+  (`utils/NewGameOptions`, sent in the welcome's game as "newGame": the sector's difficulty, and with Nexerelin
+  `utils/NexerelinNewGame`: its options from `ExerelinSetupData`, kept in the world's save
+  ("multiplayer_nexerelinOptions", written by `onNewGame`; a world made before that sends the host's last
+  options from Nexerelin's common file `nex_setupData`, with a warning), applied through Nexerelin's own
+  commands (`NGCGetExerelinDefaults`, `NGCSetPlayerFaction player`, free start, `Nex_NGCFinalize`); with
+  Nexerelin vanilla's tutorial skip is left off, since Nexerelin ends the Galatia story itself). Then `onGameLoad` -> `TitleJoin.gameLoaded`: the first
   campaign frame calls `UI.join` (as CONNECT in a loaded game). Agent's "multiplayer.saveDirName" =
   `CampaignEngine.getSaveDirName()` (chosen when the game is made).
 - Agent (`-javaagent`, added by the launcher): `NearestPlayer` (fleet spawning around every player),
@@ -141,6 +152,26 @@ Unlicense, as its developer stated (also in `LICENSE`).
 - Colony tariffs: `rulecmd/MP_Tariff` + `data/campaign/rules.csv` + `data/config/settings.json`.
 
 ## Needs testing (latest first)
+- [ ] **New games for a server: its difficulty and Nexerelin's options, the character's gender and portrait
+  (untested in game; both jars changed).** Needs the title-screen login below working first. Checked outside the
+  game: both jars compile against the RC8 jars and Nexerelin 0.12.2c's (its fields and commands as used).
+  1. Without Nexerelin (vanilla, or a modlist without it): JOIN MODE at the title screen, CHARACTER: pick Female
+     and a portrait with < >, the pictures show (names instead means the agent couldn't read them: the log's
+     "[multiplayer agent] couldn't read the portrait"). OK, then log in with a new username: the new character
+     has that gender and portrait. The game's difficulty is the server world's (easy or normal).
+  2. With Nexerelin: host a world made with non-default options (e.g. random core worlds, or some factions turned
+     off), log in with a new username: no Nexerelin screens, the campaign log says "Nexerelin: the server's
+     new-game options (... core worlds), your own unaligned start", the sector matches (the join has no seed
+     mismatch, and the same systems and markets are there), the player is unaligned with no colony of their own,
+     and nothing about the tutorial at Galatia shows. Before this, such a new game would have crashed in
+     Nexerelin's onNewGame (its quest-skip list was never set up without its dialog).
+  3. A world made before this build: the host's log warns "This world was made before its Nexerelin options were
+     kept..." and the host's last Nexerelin new-game options are sent. A world made with this build keeps its own
+     (`multiplayer_nexerelinOptions` in its save).
+  Limits: Nexerelin's quest skips (Galatia, Luddic Church...) are each player's own last choices, not the
+  server's; a random sector the host made with a start other than "own faction, free start" may not match (the
+  log warns: Nexerelin's sector generation depends on it); with Nexerelin, a normal new game later in the same
+  run of the game starts its options from the server's.
 - [ ] **Host settings (untested in game).** In the mod's `data/config/settings.json`, read when hosting starts:
   `multiplayerMaxWaitingMessages` (5000: messages waiting for a player whose game stopped taking them, before
   they're disconnected) and `multiplayerWelcomeTimeoutSeconds` (15: how long a new connection has to set up and be
@@ -199,8 +230,7 @@ Unlicense, as its developer stated (also in `LICENSE`).
   4. Another username: a new game, not the first one's save.
   5. If making the game fails: "Couldn't make a new game for <ip>: <why>" in the window log; send the logs.
      Watch for anything from new-game scripts (vanilla's or the mods') that expected the dialog's choices.
-  6. Nexerelin: its new-game options stay at its defaults (logged as a warning): the server's world must have
-     been made with them, or the sector won't match (step 3 below: send Nexerelin's options).
+  6. Nexerelin: see the test above (the server's options are used now).
 - [ ] **Encrypted connection could never have loaded (`b32b222`).** `SecureLink` caught `java.io
   .UncheckedIOException`, which the game refuses to load for mods (not on its java.io allow list), so connecting
   or hosting would have failed on loading it. Fixed; the tests below (encryption, accounts) need this build.
@@ -382,9 +412,10 @@ the players' games (results trusted, sanity-checked at best); colonies stay in t
 2. Accounts (done, `094b692`): username + password in the join window; the server keeps "account:<user>" ->
    player id, salt, PBKDF2 hash (agent `Passwords`), "accountOf:<player id>"; the account decides who you are.
    Not yet: changing a password, the host's own client (exempt).
-3. First join, no new-game screens (done for vanilla, untested in game: `TitleJoin`, see Architecture; also loads
-   the player's save for that server when there is one, the login part of step 4). Left: Nexerelin's options
-   (below), choosing the character's gender and portrait (male, the first portrait for now). Plan (revised
+3. First join, no new-game screens (done, untested in game: `TitleJoin`, `NewGameOptions`, `NexerelinNewGame`, see
+   Architecture; also loads the player's save for that server when there is one, the login part of step 4). With
+   or without Nexerelin: the server's difficulty and Nexerelin's options are sent, the gender and portrait are
+   picked in the window. Left: Nexerelin's quest skips (each player's own). Plan (revised
    2026-10-02, the user's idea): the player logs in from the title
    screen; the server sends its world's seed, game version/mods and Nexerelin's new-game options; the agent makes
    the new game itself, as the title screen does after its dialog (TitleScreenState.dialogDismissed, "Error
